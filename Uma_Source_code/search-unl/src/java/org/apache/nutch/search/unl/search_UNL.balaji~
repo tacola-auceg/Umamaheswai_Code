@@ -1,0 +1,2377 @@
+/**
+ * Module Name :UNL based Searching and Ranking
+ *
+ * Version     :1.1
+ *
+ * Date        :15-02-2010
+ *
+ * Description :UNL based Searching and Ranking
+ *---------------------------------------------
+ * It uses UNL based Index and the translated UNL graph, and searches for the matching Tamil documents. In addition it uses a Ranking algorithm based on frequency of occurrence of actual words, Concept, Concept-Relation, Concept-Relation-Concept along with associated information regarding its position in the document and Concept Co-occurrence.
+ *
+ * Current Version Description  : 
+ * ------------------------------
+ * In UNL Searching
+ *	1.Complete UNL Subgraph Match
+ *	2.Partial UNL Subgraph Match
+ *	Searching in Concept-Relation-Concept index tree with both concepts of the expanded query
+ * Use of cache to store recent query search results , handling multiple query words are also done
+ * In UNL Ranking
+ * Two level ranking
+ * Higher level ranking 
+ * Which is based on 
+ *	Concept-Relation-Concept (CRC), Concept- Relation (CR) and Concepts (C ) and pos relation preferences
+ * 	Actual query word, 
+ * 	Actual concept word 
+ * 	Expanded concept word priority
+ * 	Named Entity ,Position Weight and Frequency of concepts and terms is also considered
+ * Lower level ranking 
+ * which is based on
+ * 	Frequency of occurrence
+ * 	Position of word
+ *
+ *------------------------------------------------------------------------------
+ * Version History...
+ * -----------------------------------------------------------------------------
+ * Date                          : 15-02-2010
+ * Changes from Previous Version (5th PRSG):
+ * Ranking logic fine tuned
+ * Changes in Ranking
+ * Ranking based on the rank tag value (uses both Higher Level and Lower Level Ranking)
+ */
+
+
+package org.apache.nutch.search.unl;
+import org.apache.nutch.enconversion.unl.ta.*;
+import org.apache.nutch.index.unl.*;
+import org.apache.nutch.template.unl.*;
+
+import java.lang.*;
+import java.io.*;
+import java.util.*;
+
+public class search_UNL implements Serializable
+{
+	public static BinarySearchTree bstcrc=new BinarySearchTree();//Initialization of Concept-Relation-Concept Binary Search Tree of Index
+ 	public static BinarySearchTree bstcr=new BinarySearchTree(); //Initialization of Concept-Relation Binary Search Tree of Index
+ 	public static BinarySearchTree bstc=new BinarySearchTree(); //Initialization of Concept Binary Search Tree of Index
+
+	public HeadNode temp3=new HeadNode();			//Initialization of Head Node of Index Tree
+	public ConceptNode cpt1=new ConceptNode();		//Initialization of Concept Node of Index Tree
+	public ConceptToNode ToCpt1=new ConceptToNode();	//Initialization of ToConceptNode of Index Tree
+
+	public BinaryNextNode bnextcc=new BinaryNextNode();	//Initialization of the BinaryNextNode class which contains the concepts that 									has same hash value details
+	public BinaryNode bNodecc=new BinaryNode(); //Initialization of the BinaryNode class which contains the indexed 				
+
+        boolean flag_singleword=false;
+
+	public DocNode d1=new DocNode(); //Initialization of DocNode which contains document identifier of all indexed concepts
+
+        public offline o=new offline();	//Initialization of
+
+	nodeDetails node_details=null; //Initialization of sub class node_details contains all the retrieved documents details 
+
+	public static Hashtable fileList = null; //Used to Retrieve document url using document identifier
+
+	FinalLLImpl[]  llq=new FinalLLImpl[2]; //Multilist contains query translation output
+
+	public static boolean check_index=true; //boolean check to avoid recursive loading of index for each user search 
+
+	public static Hashtable hashtable_c,counter;//Used for query processing
+
+	public static Hashtable cache=new Hashtable();//To maintain results in cache
+
+	Hashtable table=new Hashtable();//To store only docid of two different concepts 
+
+	Hashtable andFreq=new Hashtable(); //To store the frequency count of two different concepts
+
+	TreeSet hlight=new TreeSet(); //TreeSet to specify which concept's needs to be highlighted in the snippet
+
+	String c1pos,c2pos,tamil_c1,tamil_c2;//String that assigns concepts and it's equivalent tamil words 
+
+	ArrayList rank,freqsort;//Arraylist for final ranking
+	
+	//ArrayList that stores the results seperately in order to differentiate two query words are concepts,Named Entity,query term and Expanded query terms
+	ArrayList crc_QWQW_NElist,crc_QWCQW_NElist,crc_CQWQW_NElist,crc_CQWCQW_NElist,crc_QWQW_nonNElist,crc_QWCQW_nonNElist,crc_CQWQW_nonNElist,crc_CQWCQW_nonNElist;
+	
+	ArrayList crc_QWEQW_NElist,crc_EQWQW_NElist,crc_CQWEQW_NElist,crc_EQWCQW_NElist,crc_QWEQW_nonNElist,crc_EQWQW_nonNElist,crc_CQWEQW_nonNElist,crc_EQWCQW_nonNElist;
+	ArrayList c1r_QW_NElist,c1r_CQW_NElist,c1r_EQW_NElist,c1r_QW_nonNElist,c1r_CQW_nonNElist,c1r_EQW_nonNElist;
+	ArrayList c2r_QW_NElist,c2r_CQW_NElist,c2r_EQW_NElist,c2r_QW_nonNElist,c2r_CQW_nonNElist,c2r_EQW_nonNElist;
+	ArrayList c1_QW_NElist,c1_CQW_NElist,c1_EQW_NElist,c1_QW_nonNElist,c1_CQW_nonNElist,c1_EQW_nonNElist;
+	ArrayList c2_QW_NElist,c2_CQW_NElist,c2_EQW_NElist,c2_QW_nonNElist,c2_CQW_nonNElist,c2_EQW_nonNElist;
+	ArrayList and_QWQW_list,and_QWCQW_list,and_CQWQW_list,and_CQWCQW_list,and_QWEQW_list,and_EQWQW_list,and_CQWEQW_list,and_EQWCQW_list;
+	ArrayList crRelList,crcRelList,mwCList;
+
+	TreeSet removeDup; //TreeSet for removing duplicate entries
+	
+	/**
+	 * This is the method for Initializing necessary variables for UNL Search.
+	 *
+	 * 
+	 */
+	public void initialize()
+	{
+	rank=new ArrayList();
+	removeDup=new TreeSet();
+	hashtable_c=new Hashtable();
+	freqsort=new ArrayList();
+	cache=new Hashtable();
+	counter=new Hashtable();
+		
+	crRelList=new ArrayList();
+	crcRelList=new ArrayList();
+	mwCList=new ArrayList();
+
+	crc_QWQW_NElist=new ArrayList();
+	crc_QWCQW_NElist=new ArrayList();
+	crc_CQWQW_NElist=new ArrayList();
+	crc_CQWCQW_NElist=new ArrayList();
+
+	crc_QWQW_nonNElist=new ArrayList();
+	crc_QWCQW_nonNElist=new ArrayList();
+	crc_CQWQW_nonNElist=new ArrayList();
+	crc_CQWCQW_nonNElist=new ArrayList();
+
+	crc_QWEQW_NElist=new ArrayList();
+	crc_EQWQW_NElist=new ArrayList();
+	crc_CQWEQW_NElist=new ArrayList();
+	crc_EQWCQW_NElist=new ArrayList();
+
+	crc_QWEQW_nonNElist=new ArrayList();
+	crc_EQWQW_nonNElist=new ArrayList();
+	crc_CQWEQW_nonNElist=new ArrayList();
+	crc_EQWCQW_nonNElist=new ArrayList();
+
+	c1r_QW_NElist=new ArrayList();
+	c1r_CQW_NElist=new ArrayList();
+	c1r_EQW_NElist=new ArrayList();
+	c1r_QW_nonNElist=new ArrayList();
+	c1r_CQW_nonNElist=new ArrayList();
+	c1r_EQW_nonNElist=new ArrayList();
+
+	c2r_QW_NElist=new ArrayList();
+	c2r_CQW_NElist=new ArrayList();
+	c2r_EQW_NElist=new ArrayList();
+	c2r_QW_nonNElist=new ArrayList();
+	c2r_CQW_nonNElist=new ArrayList();
+	c2r_EQW_nonNElist=new ArrayList();
+
+	c1_QW_NElist=new ArrayList();
+	c1_CQW_NElist=new ArrayList();
+	c1_EQW_NElist=new ArrayList();
+	c1_QW_nonNElist=new ArrayList();
+	c1_CQW_nonNElist=new ArrayList();
+	c1_EQW_nonNElist=new ArrayList();
+
+	c2_QW_NElist=new ArrayList();
+	c2_CQW_NElist=new ArrayList();
+	c2_EQW_NElist=new ArrayList();
+	c2_QW_nonNElist=new ArrayList();
+	c2_CQW_nonNElist=new ArrayList();
+	c2_EQW_nonNElist=new ArrayList();
+
+	and_QWQW_list=new ArrayList();
+	and_QWCQW_list=new ArrayList();
+	and_CQWQW_list=new ArrayList();
+	and_CQWCQW_list=new ArrayList();
+
+	and_QWEQW_list=new ArrayList();
+	and_EQWQW_list=new ArrayList();
+	and_CQWEQW_list=new ArrayList();
+	and_EQWCQW_list=new ArrayList();
+
+	}
+	/**
+	 * This is the method for loading UNL index.
+	 *
+	 * "
+	 */
+	public void loadindex()
+	{
+		
+		check_index = false;//once loaded boolean value will be false to avoid reloading of index for every time 
+
+		
+		bstc=offline.getc(); //load concept index tree 
+		bstcrc=offline.getcrc();//load concept-relation-concept index tree
+		bstcr=offline.getcr();//load concept-relation index tree
+		
+		try
+	    	{   	
+			FileInputStream fis=new FileInputStream("./crawl-unl/RecnoToURL.ser");
+			
+			ObjectInputStream ois=new ObjectInputStream(fis);				
+			fileList=(Hashtable)ois.readObject();
+			ois.close();//closing object stream 
+			fis.close();//closing file stream
+			
+		}
+		catch(Exception e)
+		{
+			fileList = new Hashtable();	
+			
+			e.printStackTrace();//To print the run time exception			
+		} 
+	}
+	/**
+	 * This is the method for Searching UNL index.
+	 *
+	 * @param queryWord user query term 
+	 * @return an ArrayList that consists of document identifier,ranktag value,snippet and summary
+	 */
+	public ArrayList crc_UNLSearch(String queryWord)
+	{
+		ArrayList rank3=null; //ArrayList which contains the Final result reside in this 
+	
+		int limiter=0; //To limit total number of expanded words for search
+
+		initialize(); 
+		querywordHashtable();
+		TreeSet set=new TreeSet();
+
+		String relation,c1_qtag,mw_tag,c2,to_con_tag,c1,c1rc2,c1c2=null;
+		//String variable used for assigning tags of query word,concept word,multiwords
+
+		if(check_index)
+		{
+				loadindex();  	//load the index	
+		}
+		try
+		{
+			llq=QueryTranslation.multilist_UNLQuery();//get translated query
+			TreeSet c2concpt=new TreeSet();//Tree set for c2 concept (to_concept)
+			//System.out.println("Multilist size"+llq[0].Conceptsize());
+			if(llq[0].Conceptsize() == 1)
+			{
+			flag_singleword = true;
+			}
+			for(int i=0;i<2;i++) //Interating the search process for each query and it's expansion
+			{
+
+				
+				temp3=llq[i].head;//Intializing the head pointer for the concept node
+				cpt1=temp3.colnext;//Assigning the multilist concept node pointer to traverse in vertical
+				while(cpt1 != null)
+				{
+						c1=cpt1.uwconcept.trim();//String that holds query concept
+						c1pos=cpt1.poscheck.trim();//String that holds POS(Part Of Speech)tag
+						ToCpt1=cpt1.rownext;//Assigning the multilist To concept node pointer to traverse in 										horizontal
+						c1_qtag=cpt1.queryTag.trim();//String that holds query tag(QW/CW/EQW)
+						mw_tag=cpt1.MWtag_Qw.trim();//String that holds Multiword query tag
+						tamil_c1=cpt1.gn_word.trim();	//String that holds tamil word 
+						
+						if(ToCpt1!=null && !ToCpt1.uwtoconcept.equals("None"))//null check
+						{
+						while(ToCpt1 != null)//Traveral of c2(To concept) Node
+						{	
+						limiter++;
+							
+						relation=ToCpt1.relnlabel;
+						
+						c2=llq[i].getconcept_vs_conceptid_query(ToCpt1.uwtoconcept.trim());
+						if(!c1.equals(c2)){
+
+						to_con_tag=llq[i].gettagvalue(c2).trim();
+						c2pos=llq[i].getentityofuw(c2).trim();
+						
+						tamil_c2=llq[i].gettamilword(c2).trim();
+						c2concpt.add(c2);
+			
+						
+					if((!(c2pos.equals("Verb"))) && (!(c2pos.equals("Finite Verb"))))//Check the concept is verb or 														finate verb
+					{
+							
+						int valcrc=(c2).hashCode();//find hash value of concept
+						//bNodecc=bstcrc.find(new MyInteger(valcrc));//search in the index tree
+						
+						if(bNodecc!=null)//node null check
+						{
+								
+							c1rc2=c1+relation+c2;
+							c1c2=c2+c1;								
+							getcrcresult(bNodecc,c1rc2,c1c2,c1_qtag,to_con_tag,mw_tag);//get crc results
+						}
+						if(c1_qtag.equals("CQW")||c1_qtag.equals("EQW"))
+						{
+							tamil_c1=getQW(cpt1.uwconcept);
+							if(tamil_c1!=null)
+							{
+								c1_qtag="QW";
+								
+							}							
+						}
+						if(to_con_tag.equals("CQW")||to_con_tag.equals("EQW"))
+						{
+							tamil_c2=getQW(c2);
+							if(tamil_c2!=null)
+							{
+								to_con_tag="QW";
+								
+							}
+						}
+						if(set.add(c2))
+						{
+							cr_UNLSearch(c2,relation,c2pos,"c2",tamil_c2,to_con_tag,"");//get cr(concept -relation) results
+							getc1c2(c2,"c2",tamil_c2,c2pos,to_con_tag,"");
+						}
+						if(set.add(c1))
+						{
+							cr_UNLSearch(c1,relation,cpt1.poscheck,"c1",tamil_c1,c1_qtag,"");
+							getc1c2(cpt1.uwconcept,"c1",tamil_c1,c1pos,c1_qtag,"");//get only the concept and term matched results
+						}
+							
+						}//end position check
+						
+						
+						
+					}//c1c2 equals check
+				ToCpt1=ToCpt1.getRowNext();//increment the to-concept node pointer
+				
+					
+				}//while tocpt
+				}//if tocpt not null
+					
+				
+		     		 cpt1=cpt1.getColNext();//increment the concept node pointer
+				
+			}//while of cpt
+		
+			
+		} //for	
+				//If there is no relations exist between the concept do only the concept search in the index tree
+				llq=QueryTranslation.multilist_UNLQuery();
+							
+				temp3=llq[0].head;
+				cpt1=temp3.colnext;
+				
+				while(cpt1 != null)
+				{
+						limiter++;
+					
+				
+				   if((!(cpt1.poscheck.equals("Verb"))) && (!(cpt1.poscheck.equals("Finite Verb"))))
+					{
+						if(c2concpt.add(cpt1.uwconcept.trim()))
+						{
+					getc1c2(cpt1.uwconcept,"c1",cpt1.gn_word,cpt1.poscheck,cpt1.queryTag,cpt1.MWtag_Qw.trim());
+						//get concept and term matched result from the index tree	
+						
+						}	
+					}//if
+					cpt1=cpt1.getColNext();
+				}//while
+
+
+		c1r_QW_NElist.addAll(c1r_QW_nonNElist);  
+		c1r_CQW_NElist.addAll(c1r_CQW_nonNElist);
+		c1r_EQW_NElist.addAll(c1r_EQW_nonNElist);
+		c2r_QW_NElist.addAll(c2r_QW_nonNElist);
+		c2r_CQW_NElist.addAll(c2r_CQW_nonNElist);
+		c2r_EQW_NElist.addAll(c2r_EQW_nonNElist);
+				
+		c1_QW_NElist.addAll(c1_QW_nonNElist);
+		c1_CQW_NElist.addAll(c1_CQW_nonNElist);
+		c1_EQW_NElist.addAll(c1_EQW_nonNElist);
+		c2_QW_NElist.addAll(c2_QW_nonNElist);
+		c2_CQW_NElist.addAll(c2_CQW_nonNElist);
+		c2_EQW_NElist.addAll(c2_EQW_nonNElist);
+		
+		//AND of two concepts c1 and c2
+		andlogic(c1r_QW_NElist,c2r_QW_NElist,"xryr");		
+		andlogic(c1r_QW_NElist,c2r_CQW_NElist,"xryr");		
+		andlogic(c1r_CQW_NElist,c2r_QW_NElist,"xryr");		
+		andlogic(c1r_CQW_NElist,c2r_CQW_NElist,"xryr");		
+		andlogic(c1r_QW_NElist,c2r_EQW_NElist,"xryr");		
+		andlogic(c2r_QW_NElist,c1r_EQW_NElist,"xryr");		
+		andlogic(c1r_CQW_NElist,c2r_EQW_NElist,"xryr");		
+		andlogic(c2r_CQW_NElist,c1r_EQW_NElist,"xryr");
+		
+
+		andlogic(c1r_QW_NElist,c2_QW_NElist,"xry");		
+		andlogic(c1r_QW_NElist,c2_CQW_NElist,"xry");		
+		andlogic(c1r_CQW_NElist,c2_QW_NElist,"xry");		
+		andlogic(c1r_CQW_NElist,c2_CQW_NElist,"xry");		
+		andlogic(c1r_QW_NElist,c2_EQW_NElist,"xry");		
+		andlogic(c2_QW_NElist,c1r_EQW_NElist,"xry");		
+		andlogic(c1r_CQW_NElist,c2_EQW_NElist,"xry");		
+		andlogic(c2_CQW_NElist,c1r_EQW_NElist,"xry");
+		
+
+		andlogic(c2r_QW_NElist,c1_QW_NElist,"yrx");		
+		andlogic(c2r_QW_NElist,c1_CQW_NElist,"yrx");		
+		andlogic(c2r_CQW_NElist,c1_QW_NElist,"yrx");		
+		andlogic(c2r_CQW_NElist,c1_CQW_NElist,"yrx");		
+		andlogic(c2r_QW_NElist,c1_EQW_NElist,"yrx");		
+		andlogic(c1_QW_NElist,c2r_EQW_NElist,"yrx");		
+		andlogic(c2r_CQW_NElist,c1_EQW_NElist,"yrx");		
+		andlogic(c1_CQW_NElist,c2r_EQW_NElist,"yrx");
+		
+		
+		
+		andlogic(c1_QW_NElist,c2_QW_NElist,"xy");
+		
+		
+		andlogic(c1_QW_NElist,c2_CQW_NElist,"xy");
+			
+		andlogic(c1_CQW_NElist,c2_QW_NElist,"xy");
+				
+		andlogic(c1_CQW_NElist,c2_CQW_NElist,"xy");		
+		
+		andlogic(c1_QW_NElist,c2_EQW_NElist,"xy");
+			
+		andlogic(c2_QW_NElist,c1_EQW_NElist,"xy");
+			
+		andlogic(c1_CQW_NElist,c2_EQW_NElist,"xy");
+			
+		andlogic(c2_CQW_NElist,c1_EQW_NElist,"xy");
+		
+		
+		andlogic(c1_QW_NElist,c1_QW_NElist,"xy");	
+		andlogic(c2_QW_NElist,c2_QW_NElist,"xy");
+		
+		
+		//adding all the results in the rank arraylist
+				
+		rank.addAll(crc_QWQW_NElist);
+		rank.addAll(crc_QWQW_nonNElist);
+		rank.addAll(crc_QWCQW_NElist);
+		rank.addAll(crc_QWCQW_nonNElist);
+		rank.addAll(crc_CQWQW_NElist);
+		rank.addAll(crc_CQWQW_nonNElist);
+		rank.addAll(crc_CQWCQW_NElist);
+		rank.addAll(crc_CQWCQW_nonNElist);
+		rank.addAll(crc_QWEQW_NElist);
+		rank.addAll(crc_QWEQW_nonNElist);
+		rank.addAll(crc_EQWQW_NElist);
+		rank.addAll(crc_EQWQW_nonNElist);
+		rank.addAll(crc_CQWEQW_NElist);
+		rank.addAll(crc_CQWEQW_nonNElist);
+		rank.addAll(crc_EQWCQW_NElist);
+		rank.addAll(crc_EQWCQW_nonNElist);
+
+		rank.addAll(and_QWQW_list);
+		rank.addAll(and_QWCQW_list);
+		rank.addAll(and_CQWQW_list);
+		rank.addAll(and_CQWCQW_list);
+		rank.addAll(and_QWEQW_list);
+		rank.addAll(and_EQWQW_list);
+		rank.addAll(and_CQWEQW_list);
+		rank.addAll(and_EQWCQW_list);
+
+		rank.addAll(mwCList);		
+		rank.addAll(c1r_QW_NElist);
+		rank.addAll(c2r_QW_NElist);
+		rank.addAll(c1_QW_NElist);
+		rank.addAll(c2_QW_NElist);
+		rank.addAll(c1r_QW_nonNElist);
+		rank.addAll(c2r_QW_nonNElist);
+		rank.addAll(c1_QW_nonNElist);
+		rank.addAll(c2_QW_nonNElist);
+
+		rank.addAll(c1r_CQW_NElist);
+		rank.addAll(c2r_CQW_NElist);
+		rank.addAll(c1_CQW_NElist);
+		rank.addAll(c2_CQW_NElist);
+		rank.addAll(c1r_CQW_nonNElist);
+		rank.addAll(c2r_CQW_nonNElist);
+		rank.addAll(c1_CQW_nonNElist);
+		rank.addAll(c2_CQW_nonNElist);
+
+	
+		//passing rank arraylist in the tag sorting
+		rank=tagSorting(rank);
+		
+		//removing duplicates of results
+		ArrayList rank1=removeDuplicateWithOrder(rank);
+		
+		//sorting with respect to frequency count and position weight of concepts
+		ArrayList rank2=Freq_Sorting(rank1);
+		
+		//get node URl and generate snippet 
+		rank3=getNodeLink(rank2);
+		//Seperate the tag for matrix display and return the final ranked results 
+		rank3=seperateTag(rank3);
+		
+	}
+	 catch(Exception e)
+	{
+	}
+		
+		return rank3;
+	}// method end
+	/**
+	 * This is the method for getting concept -relation-concept results
+	 *
+	 * @param bNodecc BinaryNode of Matched concept
+	 * @param c1rc2 String concept1-relation-concept2 query
+	 * @param c1c2 String concept1-concept2(c1-c2) query 
+	 * @param c1_qtag String concept1 querytag
+	 * @param to_con_tag String concept2 querytag
+	 * @param mwtag multiword querytag
+	 */
+
+
+	public void getcrcresult(BinaryNode bNodecc,String c1rc2,String c1c2,String c1_qtag,String to_con_tag,String mwtag)
+	{
+		node_details=new nodeDetails();
+		boolean flagRelation=false;
+				if(bNodecc!=null)
+				{
+			    		boolean tamilword_checkc1,tamilword_checkc2,nec1,nec2=false;
+					String compare=	bNodecc.con.toString()+bNodecc.tocon.toString();
+					if((bNodecc.con+bNodecc.tocon).equals(c1c2))
+					{
+						if((bNodecc.con+bNodecc.rel+bNodecc.tocon).equals(c1rc2))
+						{
+								flagRelation=true;
+						}
+						else
+						{
+								flagRelation=false;
+						}
+						
+						 tamilword_checkc1 = tamilcheck(bNodecc.ind_tamil,tamil_c1);
+						 tamilword_checkc2=tamilcheck(bNodecc.tamcon,tamil_c2);
+						
+						 nec1=Necheck(c1pos);						
+						 nec2=Necheck(c2pos);
+						node_details.construtObject(bNodecc.weight,bNodecc.frequency,bNodecc.docid,bNodecc.rel,bNodecc.con,bNodecc.senid,bNodecc.ind_tamil+":"+bNodecc.tamcon);
+						int count_crc=0;
+						
+						process_crc(tamilword_checkc1,tamilword_checkc2,nec1,nec2,flagRelation,c1_qtag,to_con_tag,mwtag);
+
+						d1=bNodecc.docnext;
+						while(d1 != null)
+						{
+							node_details.construtObject(d1.weight,d1.frequency,d1.docid,bNodecc.rel,bNodecc.con,bNodecc.senid,bNodecc.ind_tamil+":"+bNodecc.tamcon);
+						
+							process_crc(tamilword_checkc1,tamilword_checkc2,nec1,nec2,flagRelation,c1_qtag,to_con_tag,mwtag);
+							d1=d1.docnext ;
+						}
+
+						bnextcc=bNodecc.linknext;
+						if(bnextcc != null)
+						{
+							
+							while(bnextcc != null)
+							{
+								
+								if((bnextcc.con+bnextcc.tocon).equals(c1c2))
+								{
+									if((bnextcc.con+bnextcc.rel+bnextcc.tocon).equals(c1rc2))
+									{
+									flagRelation=true;
+									}
+									else
+									{
+										flagRelation=false;
+									}
+									tamilword_checkc1 = tamilcheck(bnextcc.ind_tamil,tamil_c1);
+									tamilword_checkc2=tamilcheck(bnextcc.tamcon,tamil_c2);	
+									
+									nec1=Necheck(c1pos);
+									nec2=Necheck(c2pos);
+						node_details.construtObject(bnextcc.weight,bnextcc.frequency,bnextcc.docid,bnextcc.rel,bnextcc.con,bnextcc.senid,bnextcc.ind_tamil+":"+bnextcc.tamcon);							
+									process_crc(tamilword_checkc1,tamilword_checkc2,nec1,nec2,flagRelation,c1_qtag,to_con_tag,mwtag);
+									d1=bnextcc.docnext;
+									while(d1 != null)
+									{
+							node_details.construtObject(d1.weight,d1.frequency,d1.docid,bnextcc.rel,bnextcc.con,bnextcc.senid,bnextcc.ind_tamil+":"+bnextcc.tamcon);						
+									process_crc(tamilword_checkc1,tamilword_checkc2,nec1,nec2,flagRelation,c1_qtag,to_con_tag,mwtag);
+									d1=d1.docnext;
+									}//while
+								}//if
+							bnextcc=bnextcc.linknext;
+							}//while
+						}//if
+						else
+						{	
+					
+						}
+						
+				}//if
+				else
+				{
+					bnextcc=bNodecc.linknext;
+						if(bnextcc != null)
+						{
+							
+							while(bnextcc != null)
+							{
+								
+								if((bnextcc.con+bnextcc.tocon).equals(c1c2))
+								{
+									if((bnextcc.con+bnextcc.rel+bnextcc.tocon).equals(c1rc2))
+									{
+									flagRelation=true;
+									}
+									else
+									{
+										flagRelation=false;
+									}
+									tamilword_checkc1 = tamilcheck(bnextcc.ind_tamil,tamil_c1);
+									tamilword_checkc2=tamilcheck(bnextcc.tamcon,tamil_c2);
+									
+									nec1=Necheck(c1pos);
+									nec2=Necheck(c2pos);
+					node_details.construtObject(bnextcc.weight,bnextcc.frequency,bnextcc.docid,bnextcc.rel,bnextcc.con,bnextcc.senid,bnextcc.ind_tamil+":"+bnextcc.tamcon);							
+									process_crc(tamilword_checkc1,tamilword_checkc2,nec1,nec2,flagRelation,c1_qtag,to_con_tag,mwtag);
+									d1=bnextcc.docnext;
+									while(d1 != null)
+									{
+							node_details.construtObject(d1.weight,d1.frequency,d1.docid,bnextcc.rel,bnextcc.con,bnextcc.senid,bnextcc.ind_tamil+":"+bnextcc.tamcon);						
+									process_crc(tamilword_checkc1,tamilword_checkc2,nec1,nec2,flagRelation,c1_qtag,to_con_tag,mwtag);
+									d1=d1.docnext;
+									}//while
+								}//if
+							bnextcc=bnextcc.linknext;
+							}//while
+						}//if
+				}
+		}//if		
+						
+	}
+	/**
+	 * This is the method for ranking concept -relation-concept results
+	 *
+	 * @param ftc1 boolean flag of query concept1(c1)
+	 * @param ftc2 boolean flag of query concept2(c2)
+	 * @param fNec1 boolean Named Entity check value(c1) 
+	 * @param fNec2 boolean Named Entity check value(c2)
+	 * @param flagRelation boolean relation of the query conceptfre
+	 * @param  c1tag concept1 querytag
+	 * @param  c2tag concept2 querytag
+	 * @param  mwtag multiword querytag
+
+	 */
+	public void process_crc(boolean ftc1,boolean ftc2,boolean fNec1,boolean fNec2,boolean flagRelation,String c1tag,String c2tag,String mwtag)
+	{
+		boolean pos_check=false;
+		
+		double freq_count=0;
+		
+		Object docDetail[]=DocNodeDetails();
+		docDetail[9]=node_details.ind_tamil+node_details.con;
+		if(ftc1 == true && ftc2 == true)
+		{
+			
+			if((node_details.rel).equals("pos"))
+			{
+				if((c1tag.equals("QW")&&c2tag.equals("QW"))|| (c1tag.equals("QW")&&c2tag.equals("CQW"))||(c1tag.equals("CQW")&&c2tag.equals("QW"))||(c1tag.equals("CQW")&&c2tag.equals("CQW")))
+				{
+				freq_count = 1+(0.5 * (node_details.weight));
+				pos_check=true;
+				}
+				
+			}
+			else
+			{
+				freq_count = 0.5 * (node_details.weight);
+				
+				docDetail[0]=freq_count;
+			}
+
+			if(fNec1 == true || fNec2 == true)
+			{
+				
+				if(c1tag.equals("QW")&&c2tag.equals("QW"))
+				{
+					docDetail[4]="1.1";
+					////////System.out.println("bf crc add"+docDetail[2]);
+					crc_QWQW_NElist.add(docDetail);
+				}
+				else if(c1tag.equals("EQW")&&c2tag.equals("QW"))
+				{
+					docDetail[4]="6.1";
+					crc_EQWQW_NElist.add(docDetail);
+				}
+				else if(c1tag.equals("QW")&&c2tag.equals("EQW"))
+				{
+					docDetail[4]="5.1";
+					crc_QWEQW_NElist.add(docDetail);
+				}
+				else
+				{
+				}
+			}
+
+			else if(fNec1 == false && fNec2 == false)
+			{
+				if(c1tag.equals("QW")&&c2tag.equals("QW"))
+				{
+					docDetail[4]="1.1";
+					////////System.out.println("bf crc add"+docDetail[2]);
+					crc_QWQW_nonNElist.add(docDetail);
+				}
+				else if(c1tag.equals("EQW")&&c2tag.equals("QW"))
+				{
+					docDetail[4]="6.1";
+					crc_EQWQW_nonNElist.add(docDetail);
+				}
+				else if(c1tag.equals("QW")&&c2tag.equals("EQW"))
+				{
+					docDetail[4]="5.1";
+					crc_QWEQW_nonNElist.add(docDetail);
+				}
+				else
+				{
+					////////System.out.println("Query Tag does not mathch");
+					////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+				}
+			}
+			
+		}//if QWQW check
+		
+		else if((ftc1 == true && ftc2 == false))
+		{
+				if(fNec1 == true || fNec2 == true)
+				{
+					if(c1tag.equals("QW")&&c2tag.equals("CQW"))
+					{
+						docDetail[4]="2.1";
+						crc_QWCQW_NElist.add(docDetail);
+					}
+					else if(c1tag.equals("EQW")&&c2tag.equals("CQW"))
+					{
+						docDetail[4]="7.1";
+						crc_EQWCQW_NElist.add(docDetail);
+					}
+					else
+					{
+						////////System.out.println("Query Tag does not mathch");
+						////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+					}
+				}
+				if(fNec1 == false || fNec2 == false)
+				{
+					if(c1tag.equals("QW")&&c2tag.equals("CQW"))
+					{
+						docDetail[4]="2.1";
+						crc_QWCQW_nonNElist.add(docDetail);
+					}
+					else if(c1tag.equals("EQW")&&c2tag.equals("CQW"))
+					{
+						docDetail[4]="7.1";
+						crc_EQWCQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						////////System.out.println("Query Tag does not mathch");
+						////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+					}
+				}
+				
+		}//else if QWCQW check
+		
+		else if((ftc1 == false && ftc2 == true))
+		{
+				if(fNec1 == true || fNec2 == true)
+				{
+					if(c1tag.equals("CQW")&&c2tag.equals("QW"))
+					{
+						docDetail[4]="3.1";
+						crc_CQWQW_NElist.add(docDetail);
+					}
+					else if(c1tag.equals("CQW")&&c2tag.equals("EQW"))
+					{
+						docDetail[4]="7.1";
+						crc_CQWEQW_NElist.add(docDetail);
+					}
+					else
+					{
+						////////System.out.println("Query Tag does not mathch");
+						////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+					}
+				}
+				if(fNec1 == false || fNec2 == false)
+				{
+					if(c1tag.equals("CQW")&&c2tag.equals("QW"))
+					{
+						docDetail[4]="3.1";
+						crc_CQWQW_nonNElist.add(docDetail);
+					}
+					else if(c1tag.equals("CQW")&&c2tag.equals("EQW"))
+					{
+						docDetail[4]="7.1";
+						crc_CQWEQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						////////System.out.println("Query Tag does not mathch");
+						////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+					}
+				}
+
+		}//else if QWCQW check
+		else if((ftc1 == false && ftc2 == false))
+		{
+				if(fNec1 == true || fNec2 == true)
+				{
+					if(c1tag.equals("CQW")&&c2tag.equals("CQW"))
+					{
+						docDetail[4]="4.1";
+						crc_CQWCQW_NElist.add(docDetail);
+					}
+					else
+					{
+						////////System.out.println("Query Tag does not mathch");
+						////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+					}				
+				}
+				if(fNec1 == true || fNec2 == true)
+				{	
+					if(c1tag.equals("CQW")&&c2tag.equals("CQW"))
+					{
+						docDetail[4]="4.1";
+						crc_CQWCQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						////////System.out.println("Query Tag does not mathch");
+						////////System.out.println("c1tag is  :"+c1tag+"  :c2 tag is :"+c2tag);
+					}	
+				}
+				
+		}//else if QWCQW check
+		/*if(flagRelation)
+		{
+			crcRelList.add(docDetail);
+		}*/
+	}
+	/**
+	 * This is the method for searching concept -relation results
+	 *
+	 * @param  con query concept
+	 * @param  rel query concept relation
+	 * @param  pos concept POS check 
+	 * @param  check for crc or cr results
+	 * @param  tamil term of the query 
+	 * @param  qtag concept querytag
+	 * @param  mwtag multiword querytag
+
+	 */
+	public void cr_UNLSearch(String con,String rel,String pos,String check,String tamil,String qtag,String mwtag)
+     	{
+		node_details=new nodeDetails();
+		boolean flag_tamil=false;
+		boolean flag_NE=false;
+		boolean flagRelation=false;
+		
+		if(con != null )
+		{
+			int valcr=con.hashCode(); //get hash vaule
+			bNodecc=bstcr.find(new MyInteger(valcr));//find in the concept-relation index tree
+			if(bNodecc != null)//node null check
+			{
+					if((bNodecc.con).equals(con) ) //check the matching of the query word concept with the indexed concepts
+					{
+						if((bNodecc.rel).equals(rel))
+						{
+							flagRelation=true;
+						}
+						else
+						{
+							flagRelation=false;
+						}
+						//verb check
+						if((!(pos.equals("Verb"))) && (!(pos.equals("Finite Verb"))))
+						{
+							flag_tamil=tamilcheck(bNodecc.ind_tamil,tamil);
+							
+							flag_NE=Necheck(pos);
+							
+						node_details.construtObject(bNodecc.weight,bNodecc.frequency,bNodecc.docid,"",bNodecc.con,bNodecc.senid,bNodecc.ind_tamil);
+							process_cr(flag_tamil,flag_NE,flagRelation,check,qtag,mwtag);//pass the matched results for ranking 
+
+							d1=bNodecc.docnext;//increment doc node
+							while(d1 != null) 
+							{
+							node_details.construtObject(d1.weight,d1.frequency,d1.docid,"",bNodecc.con,d1.senid,bNodecc.ind_tamil);		//pass the doc node information for ranking
+								process_cr(flag_tamil,flag_NE,flagRelation,check,qtag,mwtag);					
+								d1 = d1.docnext;
+							}//end while lo
+							bnextcc = bNodecc.linknext;//assign pointer for the binary next node
+							while(bnextcc != null)
+							{
+								
+								if((bnextcc.con).equals(con))//check for matching of the query concept with the indexed concept in the BinaryNextNode
+								{
+									if((bnextcc.rel).equals(rel))//check for relation match
+									{
+									flagRelation=true;
+									}
+									else
+									{
+										flagRelation=false;
+									}
+									if((!(pos.equals("Verb"))) && (!(pos.equals("Finite Verb"))) )
+									{
+										flag_tamil=tamilcheck(bnextcc.ind_tamil,tamil);
+										
+										flag_NE=Necheck(pos);
+						node_details.construtObject(bnextcc.weight,bnextcc.frequency,bnextcc.docid,"",bnextcc.con,bnextcc.senid,bnextcc.ind_tamil);
+										process_cr(flag_tamil,flag_NE,flagRelation,check,qtag,mwtag);//send the matched information for ranking
+								
+										d1=bnextcc.docnext;//increment the doc Node
+										while(d1 !=null)
+										{
+											
+								node_details.construtObject(d1.weight,d1.frequency,d1.docid,"",bnextcc.con,d1.senid,bnextcc.ind_tamil);//send all the other document identifier matched with the query concept repeat until node is not equal to null
+										process_cr(flag_tamil,flag_NE,flagRelation,check,qtag,mwtag);	
+										d1 = d1.docnext;//increment doc Node link
+										}//while d1 node
+									}// if verb check
+								}//if concept relation check
+								bnextcc=bnextcc.linknext;//Increment Binary Next Node
+							} // while bnextcc end
+						} //if verb finite verb check
+					}// if bnodecc check 	
+			}// if bnode is null 
+		}// if concept null
+	}
+	/**
+	 * This is the method for ranking concept -relation results according to the rank tag value assigned to them
+	 *
+	 * @param flagTamil term of the query check value
+	 * @param flagNe POS of query concept check value
+	 * @param flagRelation To check relation exists or not
+	 * @param c1c2check (Differentiating c1 results/c2 results)
+	 * @param qtag query tag of the term of the query 
+	 * @param mwtag multiword tag
+	 */
+	public void process_cr(boolean flagTamil,boolean flagNe,boolean flagRelation,String c1c2check,String qtag,String mwtag)
+	{
+		double compute_freq=0.0;
+		
+		Object docDetail[]=DocNodeDetails();
+		
+		docDetail[9]=node_details.ind_tamil+node_details.con;
+		if(flagTamil==true)
+		{
+			compute_freq = (node_details.weight +node_details.frequency);
+			docDetail[0] = 0.3 * (compute_freq) ;
+			if(flagNe==true)
+			{	
+				
+	
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.6";
+						}
+						
+						docDetail[7]="QW";
+						docDetail[8]="NE";
+						c1r_QW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c1r_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+	
+				}	
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.6";
+						}
+						docDetail[7]="QW";
+						docDetail[7]="NE";
+						c2r_QW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c2r_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c2 process_cr tag violate");
+					}
+	
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}	
+			if(flagNe==false)
+			{
+				
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.61";
+						}
+						docDetail[7]="QW";
+						docDetail[8]="nonNE";
+						c1r_QW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.71";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c1r_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.61";
+						}
+						docDetail[7]="QW";
+						docDetail[8]="nonNE";
+						c2r_QW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.71";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c2r_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}//ne check
+		}//tamil check
+		if(flagTamil==false)
+		{
+			docDetail[0]= 0.3 * (node_details.weight);
+			if(flagNe==true)
+			{	
+				
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="NE";
+						c1r_CQW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c1r_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+	
+				}	
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="NE";
+						c2r_CQW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c2r_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c2 process_cr tag violate");
+					}
+	
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}	
+			if(flagNe==false)
+			{
+				
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="nonNE";
+						c1r_CQW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c1r_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="nonNE";
+						c2r_CQW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c2r_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}//ne check
+		}		
+		/*if(flagRelation)
+		{
+			crRelList.add(docDetail);
+		}*/	
+	}
+	/*
+	 * 	To get the results of concepts and term word of the given query
+	 * @param con concept of the query
+	 * @param check (for differentiating c1 &c2 concepts)
+	 * @param tamil query term of the concept 
+	 * @param pos query term POS tags
+	 * @param qtag query word tag(QW/MW/CW/EQW)
+	 */
+	public void getc1c2(String con,String check,String tamil,String pos,String qtag,String mwtag)
+	{
+		node_details=new nodeDetails();
+	
+		int ascV1=(con).hashCode(); 
+		boolean flag_tamil=false;
+		boolean flag_NE=false;
+		bNodecc=null;
+		if(bstc != null)
+		{
+		    	bNodecc=bstc.find(new MyInteger(ascV1));
+		}
+		if(bNodecc != null)
+		{
+			
+			if((bNodecc.con).equals(con) )
+			{
+				
+				//if((!(pos.equals("Verb"))) && (!(pos.equals("Finite Verb"))))
+				{
+					flag_tamil=tamilcheck(bNodecc.ind_tamil,tamil);
+				
+					flag_NE=Necheck(pos);
+					
+					node_details.construtObject(bNodecc.weight,bNodecc.frequency,bNodecc.docid,"",bNodecc.con,bNodecc.senid,bNodecc.ind_tamil);
+					process(flag_tamil,flag_NE,check,qtag,mwtag);
+					d1=bNodecc.docnext;
+					while(d1 != null) 
+					{
+						node_details.construtObject(d1.weight,d1.frequency,d1.docid,"",bNodecc.con,d1.senid,bNodecc.ind_tamil);		
+						process(flag_tamil,flag_NE,check,qtag,mwtag);					
+						d1 = d1.docnext;
+					}//end while lo
+					bnextcc = bNodecc.linknext;
+					while(bnextcc != null)
+					{
+						if((bnextcc.con).equals(con))
+						{
+							//if((!(pos.equals("Verb"))) && (!(pos.equals("Finite Verb"))) )
+							{
+								flag_tamil=tamilcheck(bnextcc.ind_tamil,tamil);
+							
+								flag_NE=Necheck(pos);
+			
+								
+						node_details.construtObject(bnextcc.weight,bnextcc.frequency,bnextcc.docid,"",bnextcc.con,bnextcc.senid,bnextcc.ind_tamil);
+								process(flag_tamil,flag_NE,check,qtag,mwtag);
+								
+								d1=bnextcc.docnext;
+								while(d1 !=null)
+								{
+
+								node_details.construtObject(d1.weight,d1.frequency,d1.docid,"",bnextcc.con,d1.senid,bnextcc.ind_tamil);
+								process(flag_tamil,flag_NE,check,qtag,mwtag);	
+								d1 = d1.docnext;
+								}//while d1 node
+							}// if verb check
+						}//if concept relation check
+						bnextcc=bnextcc.linknext;
+					} // while bnextcc end
+				} //if verb finite verb check
+			} //if concept equal
+		}// if bnod
+	}
+	/**
+	 * To get the result of concept only results and term word results
+	 * @param flagTamil query term flag check
+	 * @param flagNe Named Entity check
+	 * @param c1c2check differentiating c1&c2 check (query term check)
+	 * @param qtag query tag
+	 * @param mwtag multiword tag
+	 */
+	
+	public void process(boolean flagTamil,boolean flagNe,String c1c2check,String qtag,String mwtag)
+	{	
+		double compute_freq=0.0;
+		Object docDetail[]=DocNodeDetails();
+		docDetail[9]=node_details.ind_tamil+node_details.con;
+		//////System.out.println("process c ind tamil value="+docDetail[3]);
+		if(mwtag.equals("MW"))
+		{
+			if(qtag.equals("QW")||qtag.equals("CQW"))
+			{
+			docDetail[4]="1.0";
+			docDetail[7]=qtag;
+			compute_freq = (node_details.weight +node_details.frequency);
+			docDetail[0] = 0.3 * (compute_freq) ;
+			mwCList.add(docDetail);
+			}
+		
+		}
+		//////////System.out.println("flag tamil :"+flagTamil+" ; qtag  ;"+qtag+" :tamil:"+docDetail[3]);
+		else if(flagTamil==true)
+		{
+			compute_freq = (node_details.weight +node_details.frequency);
+			docDetail[0] = 0.3 * (compute_freq) ;
+			if(flagNe==true)
+			{	
+				
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.6";
+						}
+						docDetail[7]="QW";
+						docDetail[8]="NE";
+						c1_QW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c1_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+	
+				}	
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword == true)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.6";
+						}
+						docDetail[7]="QW";
+						docDetail[8]="NE";
+						c2_QW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c2_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c2 process_cr tag violate");
+					}
+	
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+			
+			}	
+			if(flagNe==false)
+			{
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword )
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.61";
+						}
+						docDetail[7]="QW";
+						docDetail[8]="nonNE";
+						c1_QW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.71";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c1_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						if(flag_singleword)
+						{
+						docDetail[4]="5.0";
+						}
+						else
+						{
+						docDetail[4]="5.61";
+						}
+						docDetail[7]="QW";
+						docDetail[8]="nonNE";
+						c2_QW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c2_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}//ne check
+		}//tamil check
+		else if(flagTamil==false)
+		{
+			docDetail[0] = 0.2 * (node_details.weight+node_details.frequency);
+			if(flagNe==true)
+			{	
+				
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="NE";
+						c1_CQW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c1_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+	
+				}	
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="NE";
+						c2_CQW_NElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="NE";
+						c2_EQW_NElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c2 process_cr tag violate");
+					}
+	
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}	
+			if(flagNe==false)
+			{
+				
+				if(c1c2check.equals("c1"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="nonNE";
+						c1_CQW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c1_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else if(c1c2check.equals("c2"))
+				{
+					if(qtag.equals("QW"))
+					{
+						docDetail[4]="7.6";
+						docDetail[7]="CQW";
+						docDetail[8]="nonNE";
+						c2_CQW_nonNElist.add(docDetail);
+					}
+					else if(qtag.equals("EQW"))
+					{
+						docDetail[4]="7.7";
+						docDetail[7]="EQW";
+						docDetail[8]="nonNE";
+						c2_EQW_nonNElist.add(docDetail);
+					}
+					else
+					{
+						//////System.out.println(" in c1 process_cr tag violate");
+					}
+				}
+				else
+				{
+					//////System.out.println("process_cr c1c2 check fail");
+				}
+				
+			}//ne check
+		}			
+	}
+	/**
+	 *This method used to combine the results of c1 concept and c2 concept 
+	 * @param c2andlist matched document identifiers for c2 concept
+	 * @param c1andlist matched document identifiers for c1 concept
+	 * @param check string to check c1 concept or c2 concept
+	 */
+	public void andlogic(ArrayList c2andlist,ArrayList c1andlist,String check)
+	{
+		
+		double andfreq=0;
+		TreeSet set=null;
+		if(c2andlist.size()!=0 &&c1andlist.size()!=0)
+		{
+		ArrayList doclist=new ArrayList();
+		for(int i=0;i<c2andlist.size();i++)
+		{
+			Object[] c1doc=(Object[])c2andlist.get(i);
+			int docid1=(Integer)c1doc[2];
+			for(int j=0;j<c1andlist.size();j++)
+			{
+				Object[] c2doc=(Object [])c1andlist.get(j);
+				int docid2=(Integer)c2doc[2];
+				if(docid1==docid2 & i!=j)
+				{
+				
+				
+				int andval=0;
+				if(!c1doc[5].equals(c2doc[5]))
+				{
+					
+					if( ( (andval=Integer.parseInt(c1doc[6].toString()) & Integer.parseInt(c2doc[6].toString())) )!= 0 )
+					{
+						
+						if(!(c1doc[3].toString().contains(":")||c2doc[3].toString().contains(":")))
+						{
+							double docfreq1=(Double)c1doc[0];
+							double docfreq2=(Double)c2doc[0];
+							andfreq=(docfreq1+docfreq2)/2;
+							c1doc[0]=andfreq;
+							String c1tag=c1doc[7].toString();
+							String c2tag=c2doc[7].toString();
+							String addsuffix="";
+							
+
+							String suffix="";
+							if(c1doc[8].toString().equals("NE")&&c2doc[8].toString().equals("NE"))
+							{
+								addsuffix="";
+							}
+							else if(c1doc[8].toString().equals("NE")||c2doc[8].toString().equals("NE"))
+							{
+								addsuffix="1";
+							}
+							else
+							{
+								addsuffix="2";
+							}
+							
+							if(check.equals("xryr"))
+							{
+								
+								suffix="2"+addsuffix;
+								tagPrefix(c1doc[7].toString(),c2doc[7].toString(),c1doc,c1doc[3]+":"+c2doc[3],suffix,c1doc[3].toString()+c1doc[5].toString()+":"+c2doc[3].toString()+c2doc[5].toString());
+							}
+							else if(check.equals("xry"))
+							{
+								suffix="3"+addsuffix;
+								tagPrefix(c1doc[7].toString(),c2doc[7].toString(),c1doc,c1doc[3]+":"+c2doc[3],suffix,c1doc[3].toString()+c1doc[5].toString()+":"+c2doc[3].toString()+c2doc[5].toString());
+							}
+							else if(check.equals("yrx"))
+							{
+								suffix="4"+addsuffix;
+								tagPrefix(c1doc[7].toString(),c2doc[7].toString(),c1doc,c1doc[3]+":"+c2doc[3],suffix,c1doc[3].toString()+c1doc[5].toString()+":"+c2doc[3].toString()+c2doc[5].toString());
+							}
+							else if(check.equals("xy"))
+							{
+								
+								suffix="5"+addsuffix;
+								tagPrefix(c1doc[7].toString(),c2doc[7].toString(),c1doc,c1doc[3]+":"+c2doc[3],suffix,c1doc[3].toString()+c1doc[5].toString()+":"+c2doc[3].toString()+c2doc[5].toString());
+							}
+							else
+							{
+								
+							}
+							if((c1tag.equals("QW")&&c2tag.equals("QW")))
+							{
+								if(table.containsKey(docid1))
+								{
+									
+									set=(TreeSet)table.get(docid1);
+									if(set.add(c1doc[5]))
+									{
+										if(andFreq.containsKey(docid1))
+										{
+											double add=(Double)andFreq.get(docid1);
+											add+=docfreq1;
+											andFreq.put(docid1,add);
+										}
+										else
+										{
+											andFreq.put(docid1,c1doc[0]);
+										}
+									}
+									if(set.add(c2doc[5]))
+									{	
+										if(andFreq.containsKey(docid1))
+										{
+											double add=(Double)andFreq.get(docid1);
+											add+=docfreq2;
+											andFreq.put(docid1,add);
+										}
+										else
+										{
+											andFreq.put(docid1,c2doc[0]);
+										}
+									}
+									
+									table.put(docid1,set);
+								}
+								else
+								{
+									set=new TreeSet();
+									set.add(c1doc[5]);
+									set.add(c2doc[5]);
+									andFreq.put(docid1,andfreq);
+									table.put(docid1,set);
+								}
+							}
+							
+						}
+					}//sentence id
+				} //tamil word not equal
+				}// duplicate chk
+			} //doc contains
+		}//for
+		}//if null chk
+	}
+	/**
+	 * This method used to add additional value to the rank tag by considering the frequency count and position weight
+	 * @param c1tag concept1 query tag
+	 * @param c2tag concept2 query tag
+	 * @param c1doc matched documents for concept1 query term
+	 * @param c1_tamil query term of c1concept
+	 * @param suffix tag suffix
+	 * @param highlight the concept word which needs to be highlighted in the snippet
+	 */
+	public void tagPrefix(String c1tag,String c2tag,Object[] c1doc,String c1_tamil,String suffix,String highlight)
+	{
+		String tag="";
+		Object [] docDetail=new Object[9];
+		docDetail=c1doc;
+		//////System.out.println("andfreq in tagprefix is="+c1doc[4]);
+		if(c1tag.equals("QW")&&c2tag.equals("QW"))
+		{
+			tag="1."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_QWQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("QW")&&c2tag.equals("CQW"))
+		{
+			tag="2."+suffix;
+			
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_QWCQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("CQW")&&c2tag.equals("QW"))
+		{
+			tag="3."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_CQWQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("CQW")&&c2tag.equals("CQW"))
+		{
+			tag="4."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_CQWCQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("QW")&&c2tag.equals("EQW"))
+		{
+			
+			tag="5."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_QWEQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("EQW")&&c2tag.equals("QW"))
+		{
+			
+			tag="6."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_EQWQW_list.add(docDetail);
+			
+		}
+		else if(c1tag.equals("CQW")&&c2tag.equals("EQW"))
+		{
+			tag="7."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_CQWEQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("EQW")&&c2tag.equals("CQW"))
+		{
+			tag="7."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_EQWCQW_list.add(docDetail);
+		}
+		else if(c1tag.equals("EQW")&&c2tag.equals("EQW"))
+		{
+			tag="7."+suffix;
+			docDetail[3]=c1_tamil;
+			docDetail[4]=tag;
+			docDetail[9]=highlight;
+			and_EQWCQW_list.add(docDetail);
+		}
+		else
+		{
+			
+		}
+		TreeSet sett=(TreeSet)table.get(docDetail[2]);
+		if(sett!=null)
+		{
+			if(sett.size()>2)
+			{
+				String tamilword="";
+				highlight="";
+				 Iterator i = sett.iterator();
+				while (i.hasNext()) {
+				String concpt=(String)i.next();
+				String word=(String)hashtable_c.get(concpt);
+					if(word!=null)
+					{
+				   		tamilword+=word+" : ";
+						highlight+=word+concpt+":";
+					}
+				}
+				//////System.out.println("muliptleandtamilword="+tamilword);
+				//////System.out.println("docid="+docDetail[2]+"="+sett);
+				tag="1";
+				c1doc[0]=(Double)andFreq.get(docDetail[2]);
+				c1doc[3]=tamilword;
+				c1doc[4]=tag;
+				docDetail[9]=highlight;
+				and_QWQW_list.add(c1doc);
+			}
+		}
+		
+		//////System.out.println("docDetail[4]="+docDetail[4]+"/tc1doc[4]="+c1doc[4]);
+		c1_tamil=null;
+	}
+	/**
+	 * This method used to check actual query term and it's concepts 
+	 * @param tamilword String tamil word of the term in the index
+	 * @param givenword actual query term given by user
+	 * @return boolean
+	 */
+	public boolean tamilcheck(String tamilword,String givenword)
+	{
+		if(tamilword.equals(givenword))
+		{
+			return true;
+		}
+		return false;
+	}
+	/**
+	 * This method used to check for the c1,c2 concepts are Named Entity or Not 
+	 * @param poscheck
+	 * @return boolean
+	 */
+	public boolean Necheck(String poscheck)
+	{
+		if(poscheck.equals("Entity"))
+		{
+			return true;
+		}
+		return false;
+	}
+	/**This method return the Document Node details of the matched query term 
+	 * @return docDetail_bnode object of matched query term document id,pos weight,freqency weight 
+	 */
+	public Object[] DocNodeDetails()
+	{
+		TreeSet set=new TreeSet();		
+		Object[] docDetail_bnode = new Object[10];
+		docDetail_bnode[0] = node_details.frequency; //frequency
+		docDetail_bnode[1] ="";	//
+		docDetail_bnode[2] =node_details.docid; //docid
+		docDetail_bnode[3] =node_details.ind_tamil; //tamilword
+		docDetail_bnode[4] =""; //ranktag
+		docDetail_bnode[5] =node_details.con; //concept
+		docDetail_bnode[6] =node_details.senid; //sentid
+		docDetail_bnode[7] =""; //querytag
+		docDetail_bnode[8] =""; //NE chk
+		docDetail_bnode[9] =""; //for snippet highlight
+		//////System.out.println("docDetail_bnode :"+node_details.ind_tamil+" :docid"+node_details.docid+"/tsentid="+node_details.senid);
+		
+		return docDetail_bnode;
+	}
+	/**
+	 * This method used to sort the documents with respect to the frequency count and 
+	 * position value of the concept
+	 * @param al_weight
+	 * @return rankresult
+	 */
+	public ArrayList Freq_Sorting(ArrayList al_weight)
+	{
+		
+		////////System.out.println("callsorting is called");
+		Object [] bfSort=new Object[al_weight.size()];
+		double sumoffreq=0.0;
+		for(int i=0;i< al_weight.size();i++)
+		{
+			//////System.out.println("Inside for loop");
+			Object docinfo[] = (Object[])al_weight.get(i);
+			Object hit[] = new Object[9];
+		
+					hit[0]=""; //url
+					hit[1]=docinfo[2];//docid
+					hit[2]="";//snippet
+					hit[3]=docinfo[4];//ranktag
+					hit[4]=docinfo[3];//queryword
+					hit[5]= docinfo[5];//con
+					hit[6]=docinfo[7]; //query tag
+					hit[7]=docinfo[0];//frequency
+					hit[8]=docinfo[9];//frequency
+					
+			bfSort[i]=hit;
+		}
+			//////System.out.println("bfSort"+bfSort.length);
+			for(int i=0;i<bfSort.length;i++)
+			{
+				Object [] doc1=(Object [])bfSort[i];
+				String ranktag1=doc1[3].toString();
+				String queryTag=doc1[6].toString();
+				double freq1=(Double)doc1[7];
+
+				for(int j=0;j<bfSort.length;j++)
+				{	
+		
+					Object [] doc2=(Object [])bfSort[j];
+					String ranktag2=doc2[3].toString();
+					double freq2=(Double)doc2[7];
+					
+					
+				if(ranktag1.startsWith("5.")){
+					if(queryTag.equals("QW"))
+					{
+						if(freq1>freq2)
+						{
+						
+							Object [] o=(Object[])bfSort[i];
+							bfSort[i]=bfSort[j];
+							bfSort[j]=o;	
+						}
+					
+					}
+				}
+				else
+				{
+					if(ranktag1.equals(ranktag2))
+					{
+						if(freq1>freq2)
+						{
+						
+							Object [] o=(Object[])bfSort[i];
+							bfSort[i]=bfSort[j];
+							bfSort[j]=o;	
+						}
+					
+					}
+					
+				}
+				}
+			}
+			List list=Arrays.asList(bfSort);
+			ArrayList rankresult=new ArrayList(list);
+			
+			for(int i=0;i<bfSort.length;i++)
+			{	
+				Object o[]=(Object[])bfSort[i];
+				//////System.out.println("alweigth"+"d0c "+o[4]+"\t"+o[7]);
+			}
+		
+		return rankresult;
+	}
+	/**
+	 * This method used for sorting the results with respect to the rank tag
+	 * @param rank matched results with rank tag
+	 * @return ranked results
+	 */	
+	public ArrayList tagSorting(ArrayList rank)
+	{	
+		
+		ArrayList sortconcept=new ArrayList();
+		
+		double weight[]=new double[rank.size()];
+		
+		for(int i=0;i< rank.size();i++)
+		{
+			
+			Object docinfo[] = (Object[])rank.get(i);
+			
+			String str=(String)docinfo[4];
+			
+			try
+			{			
+				weight[i]=Double.parseDouble(str);
+			
+			}
+			catch(Exception e)
+			{
+			}
+		}
+		
+		Object alweight[]=rank.toArray();
+		Object temp[]=new Object[rank.size()];
+		double temp1=0;
+		for(int i=0;i<weight.length;i++)
+		{
+
+			for(int j=0;j<weight.length;j++)
+			{				
+				if(weight[i]<weight[j])
+				{
+					
+					Object [] o=(Object[])alweight[i];
+					alweight[i]=alweight[j];
+					alweight[j]=o;
+					temp1=weight[i];
+					weight[i]=weight[j];
+					weight[j]=temp1;
+					
+				}
+			}
+		}
+		List list=Arrays.asList(alweight);
+		ArrayList rankresult=new ArrayList(list);
+		for(int i=0;i<rankresult.size();i++)
+		{
+		Object obj[]=(Object[])rankresult.get(i);
+		//////System.out.println("tagsort :"+obj[4]);
+		}
+		return rankresult;
+	}
+	/**
+	 * This method gets the url for the document identifer for the matched documents
+	 * @param al_rank
+	 * @return get_url
+	 */
+	public ArrayList getNodeLink(ArrayList al_rank)
+	{
+   
+		ArrayList get_url=new ArrayList();
+		//////System.out.println("al_rank size"+al_rank.size());
+	      try
+	      {	
+			for(int i=0;i<al_rank.size();i++)
+			{
+				Object[] info=(Object[])al_rank.get(i);
+			 	StringBuffer sbresult  = new StringBuffer();
+		
+				//String docid_str= "d"+info[1].toString()+".txt";
+				//String docid_new=new String("d" +info[1]);
+
+				//String str2 = (String)fileList.get(docid_new);
+				
+				Object docid_new =info[1];
+                		String str2 = (String) fileList.get(docid_new);
+				get_url.add(info);
+			}//for loop ends 
+	     	}
+		catch(Exception e)
+		{
+			e.printStackTrace();
+		}
+	     	return get_url;
+	}
+	
+	/**
+	 * This method used to get the url for the query and matched document identifer
+	 * and generate snippet
+	 * @param h document identifier
+	 * @param word query term
+	 * @return content
+	 */
+	public String generateSnippetText(String h,String word)
+	{
+		String content="",relativecontent="",crc="";
+		try
+		{
+			String file_path="./resource/unl/SentenceExtraction/Output/content/";
+			BufferedReader br=new BufferedReader(new FileReader(file_path+h));
+			int i=0,j=0;
+			while((content=br.readLine())!=null)
+			{
+				
+				
+				if(content.contains(word))
+				{
+					
+					content=contentprocess(content);
+					
+					
+					break;
+				}
+				if(i<=3)
+				{
+					relativecontent=relativecontent+content;
+				}
+				i++;
+				content=null;
+			}
+			br.close();
+			if(content==null)
+			{
+				
+				content=contentprocess(relativecontent);	
+				//TimeTesting(contentst,contentet,"contentprocess");
+			}
+		}
+		catch(Exception e)
+		{
+			e.printStackTrace();
+		}
+		return content;
+	}
+	
+	/*public String Snippet_highlight_forcrccr(int docid,String tamilword,int value,String str)
+	{
+			//int count=0;
+			if(str.length()!=0)
+			{
+				
+				/*if(value==1)
+				{
+					
+				}
+				if(value==2)
+				{
+					for(String highlight:givenwordcrc)
+					{
+						if(str.contains(highlight))
+						{
+							str=str.replaceAll(highlight,"<b><font style=\"color:red;\">"+highlight+"</font></b>");
+						}
+					}
+				}
+				//if(value==1)
+				//{
+				
+				//	for(String highlight:givenword)
+				//	{
+						if(str.contains(tamilword))
+						{
+							str=str.replaceAll(tamilword,"<b><font style=\"color:green;\">"+tamilword+"</font></b>");
+						}
+				//	}
+					
+				//}
+				
+		
+				
+				str=str+summary(docid);
+				
+				
+			}
+		return str;
+	}*/
+	/**This method used to generate Snippet
+	 * @param input url is given as input
+	 * @return output snippet
+	 */
+	public String contentprocess(String input)
+	{
+		int findpl=0;
+		String output="";
+		String[] spt=input.split(" ");
+		for(String s:spt)
+		{
+			output=output+s+" ";
+			findpl++;
+			if(findpl==21)
+				break;
+		}
+		return output;
+	}
+	/**
+	 * This method remove duplicates without changing the order
+	 * @param arlList passing the final ranked result
+	 * @return newList final ranked results
+	 */
+	public ArrayList removeDuplicateWithOrder(ArrayList arlList)
+	{
+		//////System.out.println("In remove duplicate"+arlList.size());
+		 TreeSet set = new TreeSet();
+		 ArrayList newList = new ArrayList();
+		 for (int i=0;i<arlList.size();i++ )
+		 {
+			//////System.out.println("Inside for");
+               		Object[] element = (Object[])arlList.get(i);
+			int docid1=(Integer)element[2];
+			//////System.out.println("docid in dup chk  :"+element[2]);
+			if (set.add(""+element[2]))
+			{
+				
+		      		newList.add(element);
+				//////System.out.println("doc added");
+			}
+    		}
+		return newList;
+	}
+	
+	/***
+	 * To put the query terms which are verb or finite verb
+	 */
+	public void querywordHashtable()
+	{
+				llq=QueryTranslation.multilist_UNLQuery();
+							
+				temp3=llq[0].head;
+				cpt1=temp3.colnext;
+				
+				while(cpt1 != null)
+				{
+						
+					
+				
+				     if((!(cpt1.poscheck.equals("Verb"))) && (!(cpt1.poscheck.equals("Finite Verb"))))
+					{
+						hashtable_c.put(cpt1.uwconcept,cpt1.gn_word);
+						////System.out.println("size of hashtable"+hashtable_c.size());
+					}	//if
+					cpt1=cpt1.getColNext();
+					////System.out.println("Hashtable="+hashtable_c);
+				}//while
+			
+		
+	}
+	/**
+	 * Method for getting the actual tamil term of the concept 2(c2)
+	 * @param uwconcept c2 concept as string
+	 * @return the actual tamil term of the c2 concept
+	 */
+	public String getQW(String uwconcept)
+	{
+				
+			return ((String)hashtable_c.get(uwconcept));
+	}
+	/**
+	 * Get the Hit results from the cache
+	 * @param query actual query term of the concept
+	 * @return list of ranked results
+	 */
+	public static ArrayList catcheHit(String query)
+	{
+		Enumeration names=null;
+		ArrayList list=null;
+		int counter=0;
+		////System.out.println("Cachehit method is called....");
+		if(cache.size()!=0)
+		{
+			if(cache.containsKey(query))
+			{
+				////System.out.println("Query exist in cache..");
+				Hashtable value=(Hashtable)cache.get(query);
+				names = value.keys(); 
+				if(names.hasMoreElements())
+				{
+					String str=(String)names.nextElement();
+					list =(ArrayList)value.get(str);
+					////System.out.println("Query exist in cache.."+list.size());
+					counter=Integer.parseInt(str);
+					counter++;
+					value.put(counter,list);
+				}
+			}
+		}
+		
+		return list;
+	}
+	/**
+	 * This method used to seperate the tag for matrix display of the user interface
+	 * @param list final ranked list of matched documents
+	 * @return finalList final list of ranked documents seperated in different tag value
+	 */
+	public static ArrayList seperateTag(ArrayList list)
+	{
+		ArrayList finalList=new ArrayList();
+		ArrayList tag1=new ArrayList();
+		ArrayList tag23=new ArrayList();
+		ArrayList tag4=new ArrayList();
+		ArrayList tag56=new ArrayList();
+		ArrayList tag7=new ArrayList();
+		for(int i=0;i<list.size();i++)
+		{
+			Object obj[]=(Object[])list.get(i);
+			
+			String tag=obj[3].toString();
+			String url_name=obj[0].toString();
+			if(tag.startsWith("1"))
+			{
+				if(url_name.contains("tamilnadutourism"))
+				{
+					System.out.println("Yes getting tamilnadutourism site");
+					tag1.add(obj);
+				}
+				tag1.add(obj);
+			}
+			else if(tag.startsWith("2")||tag.startsWith("3"))
+			{
+				if(url_name.contains("tamilnadutourism"))
+				{System.out.println("Yes getting tamilnadutourism site");
+					tag23.add(obj);
+				}
+				tag23.add(obj);
+			}
+			else if(tag.startsWith("4"))
+			{
+				if(url_name.contains("tamilnadutourism"))
+				{System.out.println("Yes getting tamilnadutourism site");
+					tag4.add(obj);
+				}
+				tag4.add(obj);
+			}
+			else if(tag.startsWith("5")||tag.startsWith("6"))
+			{
+				if(url_name.contains("tamilnadutourism"))
+				{System.out.println("Yes getting tamilnadutourism site");
+					tag56.add(obj);
+				}
+				tag56.add(obj);
+			}
+			else if(tag.startsWith("7"))
+			{
+				if(url_name.contains("tamilnadutourism"))
+				{System.out.println("Yes getting tamilnadutourism site");
+					tag7.add(obj);
+				}
+				tag7.add(obj);
+			}
+			else
+			{
+				////System.out.println("No match..");
+			}
+
+		}
+		if(tag1.size()!=0)
+		{
+			finalList.add(tag1);
+		}
+		 if(tag23.size()!=0)
+		{
+			finalList.add(tag23);
+		}
+		 if(tag4.size()!=0)
+		{
+			finalList.add(tag4);
+		}
+		if(tag56.size()!=0)
+		{
+			finalList.add(tag56);
+		}
+		if(tag7.size()!=0)
+		{
+			finalList.add(tag7);
+		}
+		return finalList;
+	}
+	
+}
+/**
+ * 
+ * @author Umamaheswari E
+ * This class contains the details of node for the matched concept in the index tree
+ *
+ */
+class nodeDetails
+{
+	public nodeDetails()
+	{
+		con = null;
+        	rel = null;
+        	ind_tamil = null;
+        	docid = 0;
+        	senid = null;
+        	weight = 0;
+        	frequency = 0;
+	}
+	public String con;
+    	public String rel;
+    	public String ind_tamil;
+    	public int docid;
+    	public String senid;
+    	public int weight;
+    	public double frequency;
+	public double ranktag;
+	/**
+	 * 
+	 * @param wight concept position weight
+	 * @param freq frequency count of concepts and terms
+	 * @param dociD document identifier
+	 * @param relation relation identifier
+	 * @param concpt query concept
+	 * @param sentid position of the concept in a sentence 
+	 * @param in_tamil actual query term of the conept
+	 */
+    	public void construtObject(int wight,int freq,int dociD,String relation,String concpt,String sentid,String in_tamil)
+    	{
+    		con = concpt;
+        	rel = relation;
+        	ind_tamil = in_tamil;
+        	docid = dociD;
+        	senid = sentid;
+        	weight = wight;
+        	frequency = freq;
+		//System.out.println("concept*"+con+"\t"+"docid"+"\t"+docid);
+		
+	}
+}

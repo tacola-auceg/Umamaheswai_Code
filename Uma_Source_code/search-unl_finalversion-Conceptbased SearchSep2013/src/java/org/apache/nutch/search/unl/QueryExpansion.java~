@@ -1,0 +1,187 @@
+/**
+ * Class Name: Query Expansion
+ * QueryExpansion is used to get the Multiword and to get the Morphological Analyser output for every Query word.
+ * @Version 1.1
+ */
+
+package org.apache.nutch.search.unl;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.io.*;
+import java.util.*;
+import org.apache.nutch.analysis.unl.ta.*;
+import java.math.*;
+public class QueryExpansion{
+    public static TreeSet<String> multiWords = new TreeSet<String>();
+    //public static ArrayList StemQWord = new ArrayList();
+    public static boolean isMultiWordsLoaded = false;
+       String path = "./resource/unl/Query/";
+
+		
+                
+
+	public QueryExpansion(){
+		
+	}
+	
+
+    /**
+     * Multiword Checker
+     * @param queryStr
+     */
+    private boolean multiwordCheck(String str) {
+        populateMultiWords();
+        if (multiWords.contains(str)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     *Populate Multiword in the Tree Set once.
+     */
+    private void populateMultiWords() {
+        if (isMultiWordsLoaded) {
+            return;
+        }
+        String string = null;
+        BufferedReader bufferedReader = getBufferedReader("./resource/unl/multiwords.txt");
+        try {
+            while ((string = bufferedReader.readLine()) != null) {               
+                multiWords.add(string.substring(0, string.indexOf("/")));
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(QueryExpansion.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        closeBufferedReader(bufferedReader);
+        isMultiWordsLoaded = true;
+    }
+
+    private BufferedReader getBufferedReader(String fileName) {
+        try {
+            return (new BufferedReader(new FileReader(fileName)));
+        } catch (FileNotFoundException ex) {
+            Logger.getLogger(QueryExpansion.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return null;
+    }
+
+    private void closeBufferedReader(BufferedReader bufferedReader) {
+        try {
+            bufferedReader.close();
+        } catch (IOException ex) {
+            Logger.getLogger(QueryExpansion.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    /**
+     * getMultiWord Method to get Multiword using Permutation and combination logic to check whether Multiword.
+     * is in query word
+     * @param inputString is Query Word
+     * @return Splitted QueryWord seperated by # symbol
+     */
+    private String getMultiWord(String inputString)
+    {      
+        String inputstring = inputString;
+        String Multiword = "";
+        String[] splitstring = inputstring.split(" ");
+        int lengthofinput = splitstring.length;
+        for (int sequencelength = lengthofinput; sequencelength > 0; sequencelength--) {
+            for (int startindex = 0; startindex + sequencelength <= lengthofinput; startindex++) {
+                String temp = "";
+                for (int index = startindex; index <= startindex + sequencelength - 1; index++) {
+                    temp = temp + " " + splitstring[index];
+                }                
+                if (multiwordCheck(temp.trim()) == true) {                                       
+                    Multiword = Multiword + temp + "%";
+                    //StemQWord.add(temp);
+                }
+            }
+        }
+        return "<"+Multiword.trim()+">";
+    }
+
+    /**
+     * To the root word from analyser.
+     * @param query Actual Query word.
+     * @return root word only.
+     */
+    public String getAnalyserOut(String query){
+        String getRoot="";
+        //to get the Analyser Output
+        String getAnalyzerOP = org.apache.nutch.analysis.unl.ta.Analyser.analyseF(query, true);// to get the Morphological Analyser output        	
+	System.out.println("Analyser OP "+getAnalyzerOP);	
+        if (getAnalyzerOP.contains("<unknown>") || getAnalyzerOP.contains("count=4")) { //if Analyser output for the Query word contains <unknown> return query word else return root word.
+        getRoot = query;
+        }else{
+        String splitAnalrzerOP[]=getAnalyzerOP.split("\n");
+        getRoot = splitAnalrzerOP[1].substring(0,splitAnalrzerOP[1].indexOf("<")).trim();
+        }        	
+        return getRoot;
+    }        
+
+
+    /**
+     * To get the Single word concept of a Query word
+     * @param query be the Actual Query Word
+     * @return  Single Word Conceps
+     */
+    public String getSingleConcept(String query){      
+        String singleCon="";
+        String getQryToken[]=query.split(" ");//to split the usert Query Word
+        for(String getToken:getQryToken){
+            if(getToken.length()!=0){
+            singleCon = singleCon+getAnalyserOut(getToken.trim())+","; // to the root word from the Analyser for all Query word, seperated by #
+            }
+        }
+        return "["+singleCon+"]";
+    }
+
+
+
+    /**
+     * to remove symbols in a Query
+     * @param input as actual query word
+     * @return query word without symbols
+     */
+    public String removeSymbol(String input) {
+       String[] symbols = {"!", "@", "#", "$", "%", "^", "&", "_", "{", "}", "=", "[", "]", "|", "/", "\\", "\"", ">", "<", ";", ":", "'", ",", ".", "~", "`","?", "+", "-", "*", "(", ")"};
+       for (int i = 0; i < symbols.length; i++) {
+           if (input.contains(symbols[i])) {
+               input = input.replace(symbols[i], "");//to replace the symbol to null value
+           }
+       }
+       return input;
+   }
+
+    public String processAll(String query){                
+	    
+
+        query = removeSymbol(query);// to remove the symbols in the Query word
+         
+        String getSingleCon=getSingleConcept(query);// to get Single Word Concepts.
+                               
+        String getMultiwordCon = getMultiWord(query);// to get Multiword Word Concepts.                	
+
+        return query+"#"+getMultiwordCon+"#"+getSingleCon;
+    }
+    
+    public static void main(String args[]){
+        QueryExpansion QE = new QueryExpansion();
+        //QE.processAll("வைகை ஆறு உருவாகுமிடம் விஸ்வநாதர் கோவில் அய-்யர் ம/லை முருகம்");
+
+     	//dt.debugQueryExpansionOutput(true,true,true,true);		
+        //String x= QE.processAll("செட்டிநாடு உணவுவகைகள்");	     
+        //System.out.println("QE :"+x);
+ 	//QE = new QueryExpansion();
+	String x=QE.processAll("வைகை ஆறு உருவாகுமிடம் விஸ்வநாதர் கோவில் அய-்யர் ம/லை முருகம்");
+        System.out.println("QE :"+x);
+    }
+
+
+}
+
+
+

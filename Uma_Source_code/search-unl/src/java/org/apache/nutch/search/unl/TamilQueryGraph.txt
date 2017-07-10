@@ -1,0 +1,697 @@
+package org.apache.nutch.search.unl;
+
+import static org.apache.nutch.search.unl.Symbols.SYMBOL_AND;
+import static org.apache.nutch.search.unl.Symbols.WHITE_SPACE;
+import java.math.BigDecimal;
+import java.io.FileWriter;
+import java.util.ArrayList;
+import java.util.TreeSet;
+
+import org.apache.nutch.analysis.unl.ta.CRC;
+import org.apache.nutch.analysis.unl.ta.InstanceOF;
+import org.apache.nutch.analysis.unl.ta.Rules;
+import org.apache.nutch.analysis.unl.ta.FinalLLImpl;
+import org.apache.nutch.analysis.unl.ta.InstanceOF;
+import org.apache.nutch.analysis.unl.ta.CRC;
+import org.apache.nutch.analysis.unl.ta.ConceptNode;
+import org.apache.nutch.analysis.unl.ta.ConceptToNode;
+import org.apache.nutch.analysis.unl.ta.HeadNode;
+import org.apache.nutch.analysis.unl.ta.offline;
+import org.apache.nutch.analysis.unl.ta.QueryExpansionUNL;
+
+
+public class TamilQueryGraph {	
+    public ArrayList<String> singleWordConcept;                
+    public FreqSort freqsrt;        
+    public ArrayList arl_TempQW = new ArrayList();
+    int QW_count;
+    CRC crc;
+    Rules qt;
+    public static org.apache.nutch.analysis.unl.ta.FinalLLImpl[] ll;
+    public QueryExpansion_iof_ta iof;
+    public static QueryExpansionUNL expansion = new QueryExpansionUNL();
+	
+
+    /**
+     * QueryTranslation Constructor
+     */
+    public TamilQueryGraph(){     
+        crc =new CRC();	
+        qt = new Rules();
+        freqsrt = new FreqSort();
+        arl_TempQW = new ArrayList();
+        ll = new org.apache.nutch.analysis.unl.ta.FinalLLImpl[3];        
+        singleWordConcept = new ArrayList<String>();
+        QW_count = 0;
+        iof = QueryExpansion_iof_ta.instance();
+    }
+
+    /**
+     * to translate the expanded query word to UW Concept and populate those UW concepts in to Multilist
+     * @param expquery Query word with expanded word
+     */
+    public void translateAll(CoreeObject core) {	
+        ////System.out.println("Query Word:"+expquery);
+        String trans_out = "";
+        String transoutForIclIof = "";
+        try {	            
+            String actualQueryword = core.getTamilTranslatedConcepts();// to get the actual Query word from QueryExpansion output
+            //System.out.println("Actual Query Word:"+actualQueryword);
+            FileWriter fw = new FileWriter("/root/Desktop/moduletime.csv",true);
+            long startingtime = System.nanoTime();
+            	       trans_out = qt.enconvert(actualQueryword);//to enconvert Actual Query Word.
+            long endtime = System.nanoTime();    			
+    		double result = endtime - startingtime;		
+    		result = result / (Math.pow(10, 9));    			
+    		fw.write(BigDecimal.valueOf(result)+", ");     	
+      	    //System.out.println("TransOut: "+trans_out);  	
+	    
+            //System.out.println("Output:"+trans_out);   	
+                     //transoutForIclIof = trans_out.substring(trans_out.indexOf("[w]#") + 4, trans_out.indexOf("#[/w]#")); // transoutForIclIof to process the enconverted output for ICL IOF Combination.
+            //System.out.println("Output transoutForIclIof:"+transoutForIclIof);   	
+               		 
+
+            ////System.out.println("Transout :"+trans_out.substring(trans_out.indexOf("[w]#")+4,trans_out.indexOf("#[/w]#")));
+            //to enconver multiword to single concept
+            	       String multiword ="";
+	    if(core.getMultiwords().size() > 0){
+	            for(String mwword : core.getMultiwords()){	            
+	                     String getSingleCon[] = mwword.split(" ");// split multiwords to single concepts
+	                for (String getSWord : getSingleCon) { // enconvert the single concept
+	                    if (getSWord.length() > 0) {
+ 	                                   trans_out = trans_out + "&" + qt.enconvert(getSWord); // concordinate both actual query word with each concepts in multiword concept.
+	                    }
+	                }
+	            }
+            }
+
+            /*if(core.getMultiwords().size() > 0){
+	            for(String mwword : core.getMultiwords()){
+	            	       multiword += mwword+"%";
+	            }
+	           //System.out.println("multiword:"+multiword);             
+	                     String multiwordlist[] = multiword.split("%");
+	            for (String getMWord : multiwordlist) {
+	                     String getSingleCon[] = getMWord.split(" ");// split multiwords to single concepts
+	                for (String getSWord : getSingleCon) { // enconvert the single concept
+	                    if (getSWord.length() > 0) {
+ 	                                   trans_out = trans_out + "&" + qt.enconvert(getSWord); // concordinate both actual query word with each concepts in multiword concept.
+	                    }
+	                }
+	            }
+            }*/
+	    
+	    	startingtime = System.nanoTime();
+            System.out.println("Transout:"+trans_out);
+            constructActualQryGraph(trans_out,core);// populate the all the Actual Query word concepts into the multilist[0]
+            endtime = System.nanoTime();    			
+    		result = endtime - startingtime;		
+    		result = result / (Math.pow(10, 9));    			
+    		fw.write(BigDecimal.valueOf(result)+", ");
+            //graphconstruct(trans_out);            
+            //debug tool    	          
+            //String singleWord = expquery.substring(expquery.indexOf("[") + 1, expquery.indexOf("]"));// to get the single word tamil concept from Query Expansion Output
+            
+            startingtime = System.nanoTime();
+            String singleWord = core.getTamilTranslatedConcepts();            
+            String singleWordArry[] = singleWord.split(" ");
+            //System.out.println("Single Concept:"+ singleWord.toString());
+ 	       ArrayList<CRC> getAllExpansion = new ArrayList<CRC>(); // to store all the Expansion for each Query Word.            	    
+	    for(String getSWord : core.getTamilConcepts()){
+            //for (String getSWord : singleWordArry) {
+	    //System.out.println("Expansion word"+ getSWord);
+		ArrayList<CRC> temp = new QueryExpansion_DB().getQueryexpansion(getSWord);
+		getAllExpansion.addAll(temp);
+            }//for		
+
+            /**
+             * To Filter the Expanded Query Word based on Tourism Domine
+             */
+            ArrayList getNounEntity = new ArrayList();	    
+            for (Object o : getAllExpansion) {
+                	CRC c = (CRC) o;
+                // to get the tourism oriented concepts.
+                if (!c.c1.contains("icl>action") && !c.c1.contains("agt>") && !c.c1.contains("obj>") && !c.c1.contains("mod>") && !c.c1.contains("aoj>") && !c.c1.contains("mod<")) {
+                    if (!c.c2.contains("icl>action") && !c.c2.contains("agt>") && !c.c2.contains("obj>") && !c.c2.contains("mod>") && !c.c2.contains("aoj>") && !c.c2.contains("mod<")) {
+                        		getNounEntity.add(c);
+                        		////System.out.println("Noun Test"+c.c1 + "*" + c.tam1 + "*" + c.c2 + "*" + c.tam2);	
+                    }
+                }
+            }
+            endtime = System.nanoTime();    			
+    		result = endtime - startingtime;		
+    		result = result / (Math.pow(10, 9));    			
+    		fw.write(BigDecimal.valueOf(result)+", ");
+
+			/*for(Object ob:getNounEntity){
+			CRC c=(CRC)ob;
+			//System.out.println("***"+ c.c1 + "-" + c.tam1 + "-" + c.c2 + "-" + c.tam2);
+			}*/	
+            startingtime = System.nanoTime();
+            ArrayList sortedArylis = freqsrt.getObjArray(getNounEntity);// sorting based on frequeny count across the document
+            constructExpansionGraph(sortedArylis, 1, core.getTamilConcepts());//graph construct for Expansion in multilist[1]
+            endtime = System.nanoTime();    			
+    		result = endtime - startingtime;		
+    		result = result / (Math.pow(10, 9));    			
+    		fw.write(BigDecimal.valueOf(result)+", ");
+    		fw.close();
+      
+            //System.out.println(":"+transoutForIclIof);
+            //ArrayList getIclIofExpansion = CombinationIclIof(transoutForIclIof,"");// to check UWConcept has iof + icl or One & Only Icl            
+            //constructExpansionGraph(getIclIofExpansion, 2, singleWordConcept);//graph construct for IclIof Expansion in multilist[2]      
+
+         for (int i = 0; i < 2; i++) {
+                HeadNode h1 = new HeadNode();
+                h1 = ll[i].head;
+                ConceptNode c11 = new ConceptNode();
+                c11 = h1.colnext;
+                ConceptToNode c22 = new ConceptToNode();
+                while (c11 != null) {
+                    c22 = c11.rownext;
+                    System.out.println("concept in Miltilist[" + i + "] :" + c11.gn_word + "\t" + c11.uwconcept + "\t" + c11.queryTag);
+                    if (c22 != null) {
+                        while (c22 != null) {
+                            //System.out.println("rownext id: "+c22.uwtoconcept+"\t"+ c22.relnlabel);
+                            c22 = c22.rownext;
+                        }
+                    }
+                    //System.out.println("\n");
+                    c11 = c11.colnext;
+                }
+            }
+        } catch (Exception e) {
+            //System.out.println("Exception in appln" + e);
+            e.printStackTrace();
+        }
+	 
+    }
+
+    /**
+     * Multiuword checker
+     * @param g_word is user Query Word
+     * @return MW if Query Word is Multiword else return empty String (" ")
+     */
+    	private String chkMultiword(String g_word) {
+    		String MWtag_Qw = "";
+    		String[] QW_MWCheck = g_word.split(" ");
+    		int QW_MWCheckCnt = QW_MWCheck.length;
+    			if (QW_MWCheckCnt >= 2) {
+    				MWtag_Qw = "MW";
+    			} else {
+    				MWtag_Qw = "";
+    				////System.out.println("Not Multiword"+MWtag_Qw);
+    			}
+        return MWtag_Qw;
+    }
+
+    /**
+     * To populate the Actual Query Word into the Multiword
+     */
+    private void constructActualQryGraph(String translatedOP,  CoreeObject core) {
+	
+        //String transOutx = "[s]#[w]#ஷாஜகான்;shajahan;icl>name                        ;Entity;1#தாஜ்மஹால்;tajmahal;icl>building                        ;Entity;2#[/w]#[r]#2    pos    1#[/r]#[/s]# & [s]#[w]#எகிப்து;egypt;iof>country                        ;Entity;1#[/w]#[r]#[/r]#[/s]# & [s]#[w]#தனுஷ்கோடி;dhanushkodi;iof>place                        ;Entity;1#[/w]#[r]#[/r]#[/s]# ";
+        try {		
+            ll[0] = new org.apache.nutch.analysis.unl.ta.FinalLLImpl();
+        } catch (Exception e) {
+        }
+               
+        ArrayList<Integer> importantConC = new ArrayList<Integer>(); 
+        String relnGraph = "";
+        String splitEncovOP[] = translatedOP.split("&");//        
+        for (String transOut : splitEncovOP) {
+            ////System.out.println("--->"+transOut);
+            int position = 1;
+            ArrayList<String> getConcept = new ArrayList<String>();
+            TreeSet<String> getReln = new TreeSet<String>();
+
+            String splitTransOut[] = transOut.split("#");
+            while (splitTransOut.length > position) {
+                ////System.out.println("split length :"+splitTransOut.length);
+                if (splitTransOut[position].contains("[w]")) {                        //to get the concepts in the translated Output.                    
+                    while (!splitTransOut[++position].contains("[/w]")) {
+                        getConcept.add(splitTransOut[position]);
+                    }
+                } else if (splitTransOut[position].contains("[r]")) {                  //to get the relation in the translated Output.                                                        
+                    while (!splitTransOut[++position].contains("[/r]")) {
+                        		getReln.add(splitTransOut[position]);
+		      
+		      int conid =0;
+                                      String relationid_str  = splitTransOut[position].substring(0,1);                                                                        
+	              if(relationid_str.equals(" ") &&  relationid_str.equals("None")){
+	                        conid = Integer.parseInt(relationid_str);
+                      }
+
+                        if(!importantConC.contains(conid)){
+                        		importantConC.add(conid);                        	
+                        }
+                    }
+                }
+                position++;
+            }
+
+            /*for(String str: getReln){
+            	System.out.println(">>>| "+str.substring(0,));
+            }*/
+            
+            // if there is any relation between the concepts below code to add huristic relation
+            if (transOut.contains("2#") && getReln.size() == 0) {                                            //to check for more than 1 concept.
+                //if (getReln.size() == 0) {                    
+                for (int j = 1; j <= getConcept.size() - 1; j++) {                  //Array list started from 0, set Size -1 and start from 0
+                    int dupJval = j;
+                    if (getConcept.get(j).contains("mod<thing")) {
+                        //relnGraph += (dupJval + 1) + "	" + "mod" + "	" + (dupJval) + "#";     // to set mod relation huristically
+                        relnGraph = (dupJval + 1) + "	" + "mod" + "	" + (dupJval) + "#";     // to set mod relation huristically
+                        getReln.add(relnGraph);
+                    } else {
+                        //relnGraph += (dupJval + 1) + "	" + "pos" + "	" + (dupJval) + "#";     // to set mod relation huristically
+                        relnGraph = (dupJval + 1) + "	" + "pos" + "	" + (dupJval) + "#";     // to set mod relation huristically
+                        getReln.add(relnGraph);
+                    }
+                }
+            }
+
+            ////System.out.println("Relation array "+getReln);
+            ArrayList tamilCon = new ArrayList();   // to avoid duplicates
+            ////System.out.println("Size -->"+getConcept.size());
+
+            int sentenceId = 0;
+            for (String conInfo : getConcept) {
+                String[] getConInfo = conInfo.split(";");
+                if (!tamilCon.contains(getConInfo[0]) ) {
+                    //String conceptid = Integer.toString(++sentenceId);
+                    ////System.out.println("-->"+conceptid);
+                	String querytag = getQueryTag(getConInfo[0],core); 
+                	String sentenceid = String.valueOf(++sentenceId);
+                	//System.out.println(querytag +"\t"+sentenceid);
+                	
+                		if(querytag.contains("QW") &&  importantConC.contains(sentenceId)){
+                			//System.out.println("Success !!!");
+                			querytag = "CONC";
+                		}                	
+                    ll[0].addConcept(getConInfo[0], getConInfo[1] + "(" + getConInfo[2] + ")", sentenceid, "1", "1", getConInfo[3], "", querytag, chkMultiword(getConInfo[0])); // to add concepts in to the multilist
+                    //System.out.println("-->"+getConInfo[0]+";"+  getQueryTag(getConInfo[0],core));
+                    //System.out.println("-->"+getConInfo[0]+"   "+ getConInfo[1] +" "+"(" + getConInfo[2] + ")"+"   "+ String.valueOf(sentenceId)+"   "+ getConInfo[3] +" "+"QW"+"   *** "+ chkMultiword(getConInfo[0]));
+                    tamilCon.add(getConInfo[0]);
+                }
+            }
+            
+            
+            if (getReln.size() > 0) {                                           //to add reln into the ll list
+                for (String relId : getReln) {
+                    ////System.out.println("relation id"+relId);
+                    relId = relId.replaceAll("#", "");
+                    ////System.out.println("relation id"+relId);
+                    
+                    String[] relnInfo = relId.split("	");
+                    //System.out.println("Size:"+getReln.size()+"  "+ relId +"\t single concept "+relnInfo[0]);
+                    
+                    ll[0].addRelation(relnInfo[1]);                    
+                    //System.out.println("----->"+relnInfo[0]+" "+relnInfo[2]+" "+ relnInfo[1]);
+                    
+                    ConceptToNode cn = ll[0].addCT_Concept(relnInfo[0], relnInfo[2], relnInfo[1], "1", "1");
+                    ll[0].addCT_Relation(cn);
+                }
+            }
+        }	
+    }
+    
+    /**
+     * to get the Query tage whether Tag is AQW or MW
+     * @param word
+     * @return
+     */
+    private String getQueryTag(String word, CoreeObject core){    	
+    	//System.out.println("Core"+core.getAndConcepts_ta());
+    	//System.out.println("Core"+core.getDoubleQuotesConcepts_ta());
+    	String[] temp = word.split(" ");
+    	if(temp.length > 1)
+    		return "MW";
+    	else if(core.getAndConcepts_ta().toString().contains(word)){
+    		int i = 1;
+    		String tag ="";
+    		for(String str: core.getAndConcepts_ta()){
+    			//System.out.println(">>"+str +"Word:"+word);
+    			if(str.contains(word)){
+    				 tag = "AND"+i;
+    			}
+    			i++;
+    		}
+    		//System.out.println(">>"+tag);
+    		return tag;
+    	}else if(core.getAndConcepts_en().toString().contains(word)){
+    		int i = 1;
+    		String tag ="";
+    		for(String str: core.getAndConcepts_en()){
+    			//System.out.println(">>"+str +"Word:"+word);
+    			if(str.contains(word)){
+    				 tag = "AND"+i;
+    			}
+    			i++;
+    		}
+    		//System.out.println(">>"+tag);
+    		return tag;
+    	}else if(core.getDoubleQuotesConcepts_ta().toString().contains(word)){
+    		int i = 1;
+    		String tag ="";
+    		for(String str: core.getDoubleQuotesConcepts_ta()){
+    			//System.out.println(">>"+str +"Word:"+word);
+    			if(str.contains(word)){
+    				 tag = "QTS"+i;
+    			}
+    			i++;
+    		}
+    		//System.out.println(">>"+tag);
+    		return tag;
+    		//return "QTS";
+    	}else if(core.getDoubleQuotesConcepts_en().toString().contains(word)){
+    		int i = 1;
+    		String tag ="";
+    		for(String str: core.getDoubleQuotesConcepts_en()){
+    			//System.out.println(">>"+str +"Word:"+word);
+    			if(str.contains(word)){
+    				 tag = "QTS"+i;
+    			}
+    			i++;
+    		}
+    		//System.out.println(">>"+tag);
+    		return tag;
+    		//return "QTS";
+    	}else
+    		return "QW";    		
+    }
+    
+
+    /**
+     * To Populate the CRC from Index into the multilist ll[1]
+     * @param Inp is CRC object in ArrayList
+     * @throws java.lang.Exception
+     */
+    private void constructExpansionGraph(ArrayList Expansion, int ls, ArrayList singleWordConcept) throws Exception {
+    	System.out.println("Single wordL:"+singleWordConcept.toString());
+        ArrayList getTamilCon = new ArrayList();
+        String multiwordTag = "";
+        int conceptcount = 0;
+        ArrayList toconcept = new ArrayList();
+        ArrayList conceptids = new ArrayList();
+        String frmconceptid = "";
+        String toconceptid = "";
+        int flag = 0;
+        try {
+            ll[ls] = new FinalLLImpl();
+
+         for (Object getExpansionObj : Expansion) {
+                CRC c = (CRC) getExpansionObj;
+                getTamilCon.add((String) c.tam1);
+                multiwordTag = chkMultiword((String) c.tam1);
+
+                conceptcount++;
+                frmconceptid = String.valueOf(conceptcount);
+
+                if (singleWordConcept.contains((String) c.tam1)) {
+                    ll[ls].addConcept((String) c.tam1, (String) c.c1, frmconceptid, "1", "1", (String) c.pos1, "", "QW", multiwordTag);//tagmw,MWtag_Qw
+                } else {
+                    ll[ls].addConcept((String) c.tam1, (String) c.c1, frmconceptid, "1", "1", (String) c.pos1, "", "EQW", multiwordTag);//tagmw,MWtag_Qw
+                }
+
+
+                multiwordTag = chkMultiword((String) c.tam2);   // multiword check
+
+                if (!toconcept.contains((String) c.tam2)) {
+                    conceptcount++;
+                    toconceptid = String.valueOf(conceptcount);
+
+                    if (singleWordConcept.contains((String) c.tam2)) {
+                        ll[ls].addConcept((String) c.tam2, (String) c.c2, toconceptid, "1", "1", (String) c.pos2, "", "QW", multiwordTag);//tagsw+EQWCnt,""
+                    } else {
+                        ll[ls].addConcept((String) c.tam2, (String) c.c2, toconceptid, "1", "1", (String) c.pos2, "", "CQW", multiwordTag);//tagsw+EQWCnt,""
+                    }
+                    toconcept.add((String) c.tam2);
+                    conceptids.add(toconceptid);
+                    flag = 1;
+                }
+
+
+                if (flag == 1) {
+                    int ind = toconcept.indexOf((String) c.tam2);
+                    String tocon = conceptids.get(ind).toString();
+                    String conceptfrm = frmconceptid;
+                    ConceptToNode cn = new ConceptToNode();
+                    cn = ll[ls].addCT_Concept(conceptfrm, tocon, (String) c.rel, "1", "1");
+                    ll[ls].addCT_Relation(cn);
+                } else {
+                    String conceptfrm = frmconceptid;
+                    String conceptto = toconceptid;
+                    ConceptToNode cn = new ConceptToNode();
+                    cn = ll[ls].addCT_Concept(conceptfrm, conceptto, (String) c.rel, "1", "1");
+                    ll[ls].addCT_Relation(cn);
+                }
+            }
+        } catch (Exception e) {
+        }	
+    }
+
+    
+    //old version
+    private ArrayList CombinationIclIof(String translatedOP, String version ) {
+
+        String[] getTransCon = translatedOP.split("#");
+        //System.out.println("length combination ioficl");
+        ArrayList<String> iofExpansion = new ArrayList<String>(); 
+        ArrayList getIofExpansion = new ArrayList();
+
+
+        for (int i = 0; i < getTransCon.length; i++) {
+           	iof = new QueryExpansion_iof_ta().instance();
+            if (getTransCon.length > 1 && ((i + 1) < getTransCon.length)) {
+                //கன்னியாகுமரி;kanniyakumari;iof>place;Entity;1                
+                if (getTransCon[i].contains("iof>") && getTransCon[i + 1].contains("icl>")) {
+                    String[] toConceptInfo = getTransCon[i + 1].split(";");
+                    String getSuperClasConcept = toConceptInfo[1].toString().trim();
+                    String iofConstrain = "(iof>" + getSuperClasConcept + ")";
+                    //System.out.println("constraint:"+iofConstrain);
+
+                    // to get the IOF information (idly etc ...)
+                    if(!version.equals("DB")){
+                    iofExpansion = iof.processSuper(iofConstrain.trim());
+	                    if (iofExpansion.size() <= 0) {
+	                        String getSuperClasConcept1 = toConceptInfo[2].substring(toConceptInfo[2].indexOf(">") + 1, toConceptInfo[2].length());
+	                        iofConstrain = "(iof>" + getSuperClasConcept1 + ")";
+	                        iofExpansion = iof.processSuper(iofConstrain.trim());
+	                    }
+	
+	                    for (String frmconcept : iofExpansion) {
+	                        String Temp_iof1[] = getTransCon[i].split(";");
+	                        String Temp_iof2[] = frmconcept.split(";");
+	
+	                        crc = new CRC();
+	                        crc.tam1 = Temp_iof2[0];
+	                        crc.c1 = Temp_iof2[1] + "(" + Temp_iof2[2] + ")";
+	                        crc.pos1 = Temp_iof2[3];
+	                        crc.rel = "None";
+	                        crc.tam2 = Temp_iof1[0];
+	                        crc.c2 = Temp_iof1[1] + "(" + Temp_iof1[2] + ")";
+	                        crc.pos2 = Temp_iof1[3];
+	                        getIofExpansion.add(crc);
+	                    }//for*/
+                    }else{
+                      String[] temp = getTransCon[i].split(";");
+              		  String tamil = temp[0];
+              		  String headword= temp[1];
+              		  String constraint = temp[2];
+              		  String pos = temp[3];
+              		  String uw = headword +"("+constraint+")";                    		 
+              		  String searchconstraint = constraint.replace("iof", "icl");                    		  
+              		  getIofExpansion.addAll(QueryExpansion_DB.instanceOf().getQueryexpansion_hierarchy(tamil,uw,pos,searchconstraint));
+                    }
+                }
+                
+            } else {
+                ////System.out.println("i'm in else part " + getTransCon[i] + " " + getTransCon.length);
+                if (getTransCon[i].contains("icl>") && getTransCon.length == 1) {
+                	//System.out.println("Chennai i'm here");
+                    String[] toConceptInfo = getTransCon[i].split(";");
+                    String getSuperClasConcept = toConceptInfo[1].toString().trim();
+                    String iofConstrain = "(iof>" + getSuperClasConcept + ")";
+                    //System.out.println("iofConstrain " + iofConstrain);
+                    
+                    if(!version.equals("DB")){
+	                    iofExpansion = iof.processSuper(iofConstrain.trim());
+	                    if (iofExpansion.size() <= 0) {
+	                        String getSuperClasConcept1 = toConceptInfo[2].substring(toConceptInfo[2].indexOf(">") + 1, toConceptInfo[2].length());
+	                        iofConstrain = "(iof>" + getSuperClasConcept1 + ")";
+	                        iofExpansion = iof.processSuper(iofConstrain.trim());
+	                    }
+	
+	                    for (String frmconcept : iofExpansion) {
+	                        String Temp_iof1[] = getTransCon[i].split(";");
+	                        String Temp_iof2[] = frmconcept.split(";");
+	                        crc = new CRC();
+	                        crc.tam1 = Temp_iof2[0];
+	                        crc.c1 = Temp_iof2[1] + "(" + Temp_iof2[2] + ")";
+	                        crc.pos1 = Temp_iof2[3];
+	                        crc.rel = "None";
+	                        crc.tam2 = Temp_iof1[0];
+	                        crc.c2 = Temp_iof1[1] + "(" + Temp_iof1[2] + ")";
+	                        crc.pos2 = Temp_iof1[3];
+	                        getIofExpansion.add(crc);
+	                    }
+                    }else{
+                    	String[] temp = getTransCon[i].split(";");
+              		  	String tamil = temp[0];
+              		  	String headword= temp[1];
+              		  	String constraint = temp[2];
+              		  	String pos = temp[3];
+              		  	String uw = headword +"("+constraint+")";                    		 
+              		  	String searchconstraint = constraint.replace("iof", "icl");                    		  
+              		  	getIofExpansion.addAll(QueryExpansion_DB.instanceOf().getQueryexpansion_hierarchy(tamil,uw,pos,searchconstraint));
+                    	}
+                }else if (getTransCon[i].contains("iof>") && getTransCon.length == 1) {
+                	//System.out.println("I'm Here...");
+                	String[] toConceptInfo = getTransCon[i].split(";");
+                    String getSuperClasConcept = toConceptInfo[1].toString().trim();
+                    String iofConstrain = "(icl>" + getSuperClasConcept + ")";
+                   // System.out.println("===> " + getTransCon[i]);
+                    
+                    if(!version.equals("DB")){
+	                    iofExpansion = iof.processSuper(iofConstrain.trim());
+	                    if (iofExpansion.size() <= 0) {
+	                        String getSuperClasConcept1 = toConceptInfo[2].substring(toConceptInfo[2].indexOf(">") + 1, toConceptInfo[2].length());
+	                        iofConstrain = "(iof>" + getSuperClasConcept1 + ")";
+	                        iofExpansion = iof.processSuper(iofConstrain.trim());
+	                    }
+	
+	                    for (String frmconcept : iofExpansion) {
+	                        String Temp_iof1[] = getTransCon[i].split(";");
+	                        String Temp_iof2[] = frmconcept.split(";");
+	                        crc = new CRC();
+	                        crc.tam1 = Temp_iof2[0];
+	                        crc.c1 = Temp_iof2[1] + "(" + Temp_iof2[2] + ")";
+	                        crc.pos1 = Temp_iof2[3];
+	                        crc.rel = "None";
+	                        crc.tam2 = Temp_iof1[0];
+	                        crc.c2 = Temp_iof1[1] + "(" + Temp_iof1[2] + ")";
+	                        crc.pos2 = Temp_iof1[3];
+	                        getIofExpansion.add(crc);	                        
+	                    }
+                    }else{
+                    		  String[] temp = getTransCon[i].split(";");
+                    		  String tamil = temp[0];
+                    		  String headword= temp[1];
+                    		  String constraint = temp[2];
+                    		  String pos = temp[3];
+                    		  String uw = headword +"("+constraint+")";                    		 
+                    		  String searchconstraint = constraint.replace("iof", "icl");                    		  
+                    		  getIofExpansion.addAll(QueryExpansion_DB.instanceOf().getQueryexpansion_hierarchy(tamil,uw,pos,searchconstraint));                    		                      		  
+                    }
+
+                	
+                }
+            }//else// if len > i+1
+        }// for
+
+        return getIofExpansion;
+    }
+    
+    /*public ArrayList CombinationIclIof(String translatedOP) {
+        ////System.out.println("ICLIOF:"+translatedOP);
+        String[] getTransCon = translatedOP.split("#");
+        ////System.out.println("length :" + getTransCon.length);
+        ArrayList<String> iofExpansion = new ArrayList<String>();
+        ArrayList getIofExpansion = new ArrayList();
+
+
+        try {
+            for (int i = 0; i < getTransCon.length; i++) {
+                iof = new QueryExpansion_iof_ta().instance();
+                if (getTransCon.length > 1) {
+                    		//கன்னியாகுமரி;kanniyakumari;iof>place;Entity;1
+
+                    if (getTransCon[i].contains("iof>") && ((i + 1) > getTransCon.length)) {
+                        if (getTransCon[i + 1].contains("icl>")) {
+                            String[] toConceptInfo = getTransCon[i + 1].split(";");
+                            String getSuperClasConcept = toConceptInfo[1].toString().trim();
+                            String iofConstrain = "(iof>" + getSuperClasConcept + ")";
+                            System.out.println("IOFCONSTARTINT:"+iofConstrain);
+
+                            // to get the IOF information (idly etc ...)
+                            iofExpansion = iof.processSuper(iofConstrain.trim());
+
+                            if (iofExpansion.size() <= 0) {
+                                String getSuperClasConcept1 = toConceptInfo[2].substring(toConceptInfo[2].indexOf(">") + 1, toConceptInfo[2].length());
+                                iofConstrain = "(iof>" + getSuperClasConcept1 + ")";
+                                iofExpansion = iof.processSuper(iofConstrain.trim());
+                            }
+
+                            for (String frmconcept : iofExpansion) {
+                                String Temp_iof1[] = getTransCon[i].split(";");
+                                String Temp_iof2[] = frmconcept.split(";");
+
+                                crc = new CRC();
+                                crc.tam1 = Temp_iof2[0];
+                                crc.c1 = Temp_iof2[1] + "(" + Temp_iof2[2] + ")";
+                                crc.pos1 = Temp_iof2[3];
+                                crc.rel = "None";
+                                crc.tam2 = Temp_iof1[0];
+                                crc.c2 = Temp_iof1[1] + "(" + Temp_iof1[2] + ")";
+                                crc.pos2 = Temp_iof1[3];
+                                getIofExpansion.add(crc);
+                            }//for
+                        }
+                    }
+                } else {
+                    System.out.println("i'm in else part " + getTransCon[i] + " " + getTransCon.length);
+                    if (getTransCon[i].contains("icl>") && getTransCon.length == 1) {
+
+                        String[] toConceptInfo = getTransCon[i].split(";");
+                        String getSuperClasConcept = toConceptInfo[1].toString().trim();
+                        String iofConstrain = "(iof>" + getSuperClasConcept + ")";
+                        //System.out.println("iofConstrain " + iofConstrain);
+
+                        iofExpansion = iof.processSuper(iofConstrain.trim());
+                        if (iofExpansion.size() <= 0) {
+                            String getSuperClasConcept1 = toConceptInfo[2].substring(toConceptInfo[2].indexOf(">") + 1, toConceptInfo[2].length());
+                            iofConstrain = "(iof>" + getSuperClasConcept1 + ")";
+                            iofExpansion = iof.processSuper(iofConstrain.trim());
+                        }
+
+                        for (String frmconcept : iofExpansion) {
+                            String Temp_iof1[] = getTransCon[i].split(";");
+                            String Temp_iof2[] = frmconcept.split(";");
+                            crc = new CRC();
+                            crc.tam1 = Temp_iof2[0];
+                            crc.c1 = Temp_iof2[1] + "(" + Temp_iof2[2] + ")";
+                            crc.pos1 = Temp_iof2[3];
+                            crc.rel = "None";
+                            crc.tam2 = Temp_iof1[0];
+                            crc.c2 = Temp_iof1[1] + "(" + Temp_iof1[2] + ")";
+                            crc.pos2 = Temp_iof1[3];
+                            getIofExpansion.add(crc);
+                        }
+                    }
+                }//else// if len > i+1
+            }// for
+        } catch (Exception e) {
+            e.printStackTrace();
+            // TODO: handle exception
+        }
+
+        return getIofExpansion;
+    }*/
+
+    /**
+     * @return multilist ll[0] ll[1] and ll[2] to search
+     */
+    public static FinalLLImpl[] multilist_UNLQuery() {
+        return (ll);
+    }
+
+    public static void main(String args[]) {
+    	//ஆமெரிக்கா செட்டிநாடு உணவுவகைகள் அகத்தியர் அருவி ஆப்பிள் செட்டிநாடு உணவுவகைகள்
+    	CoreeObject core = new CoreeObject();
+    	core.setActualQuery("ஆமெரிக்கா தமிழ்நாட்டு கவுதம் மாவட்டம் கவுதம்  உணவு செட்டிநாடு உணவுவகைகள் அகத்தியர் அருவி ஆப்பிள் செட்டிநாடு உணவுவகைகள்");
+    	core.setLanguage("ta");
+    	core.setTamilTranslatedConcepts("ஆமெரிக்கா தமிழ்நாட்டு கவுதம் மாவட்டம் கவுதம்  மாவட்டம்   உணவு செட்டிநாடு உணவுவகைகள் அகத்தியர் அருவி ஆப்பிள் செட்டிநாடு உணவுவகைகள்");
+    	new TamilQueryGraph().translateAll(core);
+    }
+	
+}

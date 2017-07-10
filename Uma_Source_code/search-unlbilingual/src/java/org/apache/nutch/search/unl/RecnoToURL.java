@@ -1,0 +1,65 @@
+package org.apache.nutch.search.unl;
+import java.util.ArrayList;
+import org.apache.lucene.analysis.KeywordAnalyzer;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.queryParser.QueryParser;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.QueryFilter;
+import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.store.FSDirectory;
+
+/*
+ * To change this template, choose Tools | Templates and open the template in
+ * the editor.
+ */
+/**
+ *
+ * @author root
+ */
+public class RecnoToURL {
+
+    public static String _getRecNoToURL(String indexDir, String docid) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            String ff = "docid";// br.readLine();
+            String q = docid.trim();//br.readLine();
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+            //
+
+            TopDocs td;
+            td = is.search(qq, new QueryFilter(qq), 1);
+            System.err.println("Rec-Url Found: " + td.scoreDocs.length + " Entries.");
+            for (int B = 0, i = 0; i < td.scoreDocs.length && B < 1; i++, B++) {
+                Document d = is.doc(td.scoreDocs[i].doc);
+                // if (Integer.parseInt(d.get("weight")) >= WLimit) {
+                arr.add(d);
+                //System.out.println(d);
+                // }
+                //System.out.print("\t" + is.doc(td.scoreDocs[i].doc).get("documentid"));
+
+            }
+            long l2 = System.currentTimeMillis();
+            is.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (arr.size() <= 0) {
+            return "";
+        } else {
+            return arr.get(0).get("url");
+        }
+    }
+    //
+
+    public static void main(String[] s) throws Exception {
+        String docid = "19216881322413422218";
+        String url = _getRecNoToURL("/opt/AU-CEG.Corpus/RecnoToURL/", docid);
+        System.out.println("URL:" + url);
+    }
+}

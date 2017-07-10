@@ -1,0 +1,600 @@
+package org.apache.nutch.search.unl;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Hashtable;
+import org.apache.lucene.analysis.KeywordAnalyzer;
+//import javax.swing.text.Document;
+import org.apache.lucene.analysis.SimpleAnalyzer;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.queryParser.QueryParser;
+import org.apache.lucene.search.*;
+import org.apache.lucene.store.FSDirectory;
+
+public class SimpleFileIndexer {
+
+    public static void main(String[] args) throws Exception {
+        //"/root/Desktop/jjj/"
+        //_UWDictIndex("/root/Desktop/Lucene-UWDict-Index/");
+        //_indexC("/root/Desktop/Lucene-C-Index-All/");
+        //_indexCRC("/root/Desktop/Lucene-CRC-Index-All/");
+        //System.out.println(("" + _searchCRC("/root/Desktop/Lucene-CRC-Index-All/", "implicit(aoj>thing)", "client(icl>person)")).replace("stored/uncompressed,indexed", " ").replace("Document", "\n"));
+        //System.out.println(("" + new SimpleFileIndexer()._searchC("/root/Desktop/Lucene-C-Index-All/", "புஷ்கர்", "tamilword")).replace("stored/uncompressed,indexed", " ").replace("Document", "\n"));
+    }
+
+    public void _indexCRC(String IndexDir) throws Exception {
+        File indexDir = new File(IndexDir);
+        if (indexDir.exists()) {
+            indexDir.mkdir();
+            //IndexWriterConfig iwc = new IndexWriterConfig(Version.LUCENE_CURRENT, new SimpleAnalyzer());
+            IndexWriter indexWriter = new IndexWriter(FSDirectory.getDirectory(indexDir), new SimpleAnalyzer());
+            indexWriter.setUseCompoundFile(false);
+            /*
+             * SELECT distinct * FROM crcnode1 c, crcinfo1 d where
+             * c.crcid=d.crcid;
+             */
+            //
+            Connection con = null;
+            String url = "jdbc:mysql://localhost:3306/";
+            String db = "Tourism_ta_AUCEG";
+            String driver = "com.mysql.jdbc.Driver";
+            Class.forName(driver);
+            con = DriverManager.getConnection(url + db, "root", "");
+            Statement st = con.createStatement();
+            st.setFetchSize(Integer.MIN_VALUE);
+            //
+            int D = 1;
+            long l1 = System.currentTimeMillis();
+
+            while (D < 11) {
+                ResultSet rs = st.executeQuery("SELECT * FROM crctable" + D);
+                System.out.println("Fetched..." + D);
+                while (rs.next()) {
+                    //
+                    Document doc = new Document();
+                    String CRC = rs.getString("fromuwconcept") + rs.getString("touwconcept");
+
+                    doc.add(new Field("crc", CRC, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("conceptid", rs.getString("conceptid"), Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("fromuwconcept", rs.getString("fromuwconcept"), Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("touwconcept", rs.getString("touwconcept"), Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("fromtamilconcept", rs.getString("fromtamilconcept"), Field.Store.YES, Field.Index.UN_TOKENIZED));//1
+                    doc.add(new Field("relation", rs.getString("relation"), Field.Store.YES, Field.Index.UN_TOKENIZED));//2
+                    doc.add(new Field("frompos", rs.getString("frompos"), Field.Store.YES, Field.Index.UN_TOKENIZED));//3
+                    doc.add(new Field("topos", rs.getString("topos"), Field.Store.YES, Field.Index.UN_TOKENIZED));//4
+                    doc.add(new Field("totamilconcept", rs.getString("totamilconcept"), Field.Store.YES, Field.Index.UN_TOKENIZED));//5
+                    doc.add(new Field("documentid", rs.getString("documentid"), Field.Store.YES, Field.Index.UN_TOKENIZED));//
+                    doc.add(new Field("sentenceid", rs.getString("sentenceid"), Field.Store.YES, Field.Index.UN_TOKENIZED));//
+                    doc.add(new Field("termfrequency", rs.getString("termfrequency"), Field.Store.YES, Field.Index.UN_TOKENIZED));//
+                    doc.add(new Field("conceptfrequency", rs.getString("conceptfrequency"), Field.Store.YES, Field.Index.UN_TOKENIZED));//
+                    doc.add(new Field("weight", rs.getString("weight"), Field.Store.YES, Field.Index.UN_TOKENIZED));//
+
+                    indexWriter.addDocument(doc);
+                }
+                rs.close();
+                D++;
+            }
+            //
+            indexWriter.optimize();
+            indexWriter.close();
+
+            con.close();
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Indexing Time:" + (l2 - l1));
+        }
+//
+    }
+//
+
+    public void _indexC(String IndexDir) throws Exception {
+        File indexDir = new File(IndexDir);
+        if (indexDir.exists()) {
+            indexDir.mkdir();
+            //IndexWriterConfig iwc = new IndexWriterConfig(Version.LUCENE_CURRENT, new SimpleAnalyzer());
+            IndexWriter indexWriter = new IndexWriter(FSDirectory.getDirectory(indexDir), new SimpleAnalyzer());
+            indexWriter.setUseCompoundFile(false);
+            /*
+             * SELECT distinct * FROM crcnode1 c, crcinfo1 d where
+             * c.crcid=d.crcid;
+             */
+            //
+            Connection con = null;
+            String url = "jdbc:mysql://localhost:3306/";
+            String db = "Tourism_ta_AUCEG";
+            String driver = "com.mysql.jdbc.Driver";
+            Class.forName(driver);
+            con = DriverManager.getConnection(url + db, "root", "");
+            Statement st = con.createStatement();
+            st.setFetchSize(Integer.MIN_VALUE);
+            //
+            int D = 1;
+            long l1 = System.currentTimeMillis();
+//
+            //IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            //
+            Hashtable<String, String> ht = _DictGet();
+            while (D < 11) {
+                ResultSet rs = st.executeQuery("SELECT * FROM conceptinfo" + D);
+                System.out.println("Fetched..." + D);
+                while (rs.next()) {
+                    //
+                    Document doc = new Document();
+                    doc.add(new Field("sentenceid", rs.getString("sentenceid"), Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("termfrequency", rs.getString("termfrequency"), Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("conceptfrequency", rs.getString("conceptfrequency"), Field.Store.YES, Field.Index.UN_TOKENIZED));
+                    doc.add(new Field("weight", rs.getString("weight"), Field.Store.YES, Field.Index.UN_TOKENIZED));//1
+                    doc.add(new Field("tamilwordid", rs.getString("tamilwordid"), Field.Store.YES, Field.Index.UN_TOKENIZED));//2
+                    doc.add(new Field("documentid", rs.getString("documentid"), Field.Store.YES, Field.Index.UN_TOKENIZED));//3
+                    String tid = rs.getString("tamilwordid");
+                    String SS = ht.get(tid);
+                    String synonym = "", uwconcept = "";
+                    if (tid.contains("-")) {
+                        String s1[] = SS.split("/");
+                        synonym = s1[0];
+                        uwconcept = s1[1] + "(" + s1[2] + ")";
+                    } else {
+                        String s1[] = SS.split("/");
+                        synonym = s1[0];
+                        uwconcept = s1[1] + "(" + s1[2] + ")";
+                    }
+                    doc.add(new Field("tamilword", synonym, Field.Store.YES, Field.Index.UN_TOKENIZED));//2
+                    doc.add(new Field("uwconcept", uwconcept, Field.Store.YES, Field.Index.UN_TOKENIZED));//3
+                    indexWriter.addDocument(doc);
+                    //                    
+                    //                    String tid = rs.getString("tamilwordid");
+                    //                    System.out.print(tid + " ");
+                    //
+                    //                    if (!tid.contains("-")) {
+                    //                        String q = tid;//br.readLine();
+                    //                        String ff = "tamilwordid";
+                    //                        q = q.replace(">", "?");
+                    //                        q = q.replace("(", "?");
+                    //                        q = q.replace(")", "?");
+                    //                        QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+                    //                        Query qq = qp.parse(q.trim());
+                    //                        Hits hits = is.search(qq, Sort.RELEVANCE);
+                    //                        _searchUWTid("/root/Desktop/Lucene-UWDict-Index/", tid.trim());
+                    //                        ArrayList<Document> dd = new ArrayList<Document>();
+                    //                        for (int i = 0; i < hits.length(); ++i) {
+                    //                            Document d = hits.doc(i);
+                    //                            dd.add(d);
+                    //                        }
+                    //                        System.out.print(dd.size() + " ");
+                    //                        if (dd.size() > 0) {
+                    //                            doc.add(new Field("tamilword", dd.get(0).get("synonym"), Field.Store.YES, Field.Index.UN_TOKENIZED));//2
+                    //                            doc.add(new Field("uwconcept", dd.get(0).get("uwconcept"), Field.Store.YES, Field.Index.UN_TOKENIZED));//3
+                    //                        }
+                    //                    } else {
+                    //                        doc.add(new Field("tamilword", "Null", Field.Store.YES, Field.Index.UN_TOKENIZED));//2
+                    //                        doc.add(new Field("uwconcept", "Null", Field.Store.YES, Field.Index.UN_TOKENIZED));//3
+                    //                    }
+                    //                    
+                    //{
+                    //  indexWriter.addDocument(doc);
+                    //}
+                }
+                rs.close();
+                D++;
+            }
+            //
+//            is.close();
+            indexWriter.optimize();
+            indexWriter.close();
+
+            con.close();
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Indexing Time:" + (l2 - l1));
+        }
+//
+    }
+
+    public void _UWDictIndex(String IndexDir) throws Exception {
+        File indexDir = new File(IndexDir);
+        if (!indexDir.exists()) {
+            indexDir.mkdir();
+            //IndexWriterConfig iwc = new IndexWriterConfig(Version.LUCENE_CURRENT, new SimpleAnalyzer());
+            IndexWriter indexWriter = new IndexWriter(FSDirectory.getDirectory(indexDir), new SimpleAnalyzer());
+            indexWriter.setUseCompoundFile(false);
+            BufferedReader br = new BufferedReader(new FileReader("/CliaIITKGP/resource/unl/uwdict.txt"));
+            String SS = "";
+            while ((SS = br.readLine()) != null) {
+                //
+                String s1[] = SS.split("/");
+                String synonym, uwconcept, tamilwordid, uw;
+                synonym = s1[0];
+                uwconcept = s1[1] + "(" + s1[2] + ")";
+                tamilwordid = s1[3];
+                uw = s1[4];
+                Document doc = new Document();
+                doc.add(new Field("uwconceptid", uw, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                doc.add(new Field("tamilwordid", tamilwordid, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                doc.add(new Field("uwconcept", uwconcept, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                doc.add(new Field("synonym", synonym, Field.Store.YES, Field.Index.UN_TOKENIZED));//1
+                indexWriter.addDocument(doc);
+                //////System.out.println(synonym + uwconcept + tamilwordid + uw);
+            }
+            br.close();
+            //
+            indexWriter.optimize();
+            indexWriter.close();
+
+        }
+//
+    }
+
+    public void _MWDictIndex(String IndexDir) throws Exception {
+        File indexDir = new File(IndexDir);
+        if (!indexDir.exists()) {
+            indexDir.mkdir();
+            //IndexWriterConfig iwc = new IndexWriterConfig(Version.LUCENE_CURRENT, new SimpleAnalyzer());
+            IndexWriter indexWriter = new IndexWriter(FSDirectory.getDirectory(indexDir), new SimpleAnalyzer());
+            indexWriter.setUseCompoundFile(false);
+            BufferedReader br = new BufferedReader(new FileReader("/CliaIITKGP/resource/unl/multiwords.txt"));
+            String SS = "";
+            while ((SS = br.readLine()) != null) {
+                //
+                String s1[] = SS.split("/");
+                String tamilword, concept, noofwrds, firstword, tamid, cid;
+                tamilword = s1[0];
+                concept = s1[1] + "(" + s1[2] + ")";
+                noofwrds = s1[3];
+                firstword = s1[4];
+                tamid = s1[5];
+                cid = s1[6];
+                Document doc = new Document();
+                doc.add(new Field("synonym", tamilword, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                doc.add(new Field("uwconcept", concept, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                doc.add(new Field("noofwords", noofwrds, Field.Store.YES, Field.Index.UN_TOKENIZED));
+                doc.add(new Field("firstword", firstword, Field.Store.YES, Field.Index.UN_TOKENIZED));//1
+                doc.add(new Field("tamilwordid", tamid, Field.Store.YES, Field.Index.UN_TOKENIZED));//1
+                doc.add(new Field("uwconceptid", cid, Field.Store.YES, Field.Index.UN_TOKENIZED));//1
+                indexWriter.addDocument(doc);
+                //////System.out.println(synonym + uwconcept + tamilwordid + uw);
+            }
+            br.close();
+            //
+            indexWriter.optimize();
+            indexWriter.close();
+
+        }
+//
+    }
+    //
+
+    public ArrayList<Document> _searchUW(String indexDir, String uwconcept) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            // BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = "uwconcept";// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = uwconcept;//br.readLine();
+            q = q.replace(">", "?");
+            q = q.replace("(", "?");
+            q = q.replace(")", "?");
+            q = q.replace(" ", "?");
+            q = q.replace("<", "?");
+            q = q.replace("-", "?");
+            //q=q.replace("", "");
+            //q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+
+            Hits hits = is.search(qq, Sort.RELEVANCE);
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length(); ++i) {
+                Document d = hits.doc(i);
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1) + "ms");
+            is.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+
+    public ArrayList<Document> _searchUWTid(String indexDir, String tid) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            // BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = "tamilwordid";// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = "\"" + tid.trim() + "\"";//br.readLine();
+
+            //q=q.replace("", "");
+            //q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q.trim());
+
+            Hits hits = is.search(qq, Sort.RELEVANCE);
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length(); ++i) {
+                Document d = hits.doc(i);
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            is.close();
+            ////////System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1) + "ms");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+    //
+
+    public ArrayList<Document> _searchMW(String indexDir, String uwconcept) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            // BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = "uwconcept";// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = uwconcept;//br.readLine();
+            q = q.replace(">", "?");
+            q = q.replace("(", "?");
+            q = q.replace(")", "?");
+            q = q.replace(" ", "?");
+            q = q.replace("<", "?");
+            q = q.replace("-", "?");
+            //q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+
+            Hits hits = is.search(qq, Sort.RELEVANCE);
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length(); ++i) {
+                Document d = hits.doc(i);
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1) + "ms");
+            is.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+
+    public ArrayList<Document> _searchMWTid(String indexDir, String tid) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            // BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = "tamilwordid";// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = "\"" + tid.trim() + "\"";//br.readLine();
+
+            //q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+
+            Hits hits = is.search(qq, Sort.RELEVANCE);
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length(); ++i) {
+                Document d = hits.doc(i);
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1) + "ms");
+            is.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+    //
+
+    public ArrayList<Document> _searchCRC(String indexDir, String fromuw, String touw) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            //BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = "crc";// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = fromuw + touw;//br.readLine();
+            q = q.replace(">", "?");
+            q = q.replace("(", "?");
+            q = q.replace(")", "?");
+            q = q.replace(" ", "?");
+            q = q.replace("<", "?");
+            q = q.replace("-", "\\-");
+            //q=q.replace("", "");
+            //q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+            //
+            String[] sF = {"conceptfrequency", "termfrequency", "weight"};
+            Sort sss = new Sort(sF);
+            //
+            Hits hits = is.search(qq, sss);
+
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+
+            for (int B = 0, i = hits.length() - 1; i > 0 && B < 1000; i--, B++) {
+                Document d = hits.doc(i);
+                d.removeField("crc");
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1));
+            is.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+//
+
+    public ArrayList<Document> _searchCC(String indexDir, String tid, String fname) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            // BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = fname.trim();// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = "\"" + tid.trim() + "\"";//br.readLine();
+            //String q=tid.trim();
+            //System.out.println("Tamilid"+q);
+
+            //  q=q.replace("", "");
+            //q = q.replace("-", "?");
+            //  q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+            //System.out.println("Query"+qq);
+            Hits hits = is.search(qq);
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length(); i++) {
+                Document d = hits.doc(i);
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1) + "ms");
+            is.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+
+    public ArrayList<Document> _searchC(String indexDir, String tid, String fname,Hashtable c) {
+        ArrayList<Document> arr = new ArrayList<Document>();
+        try {
+            IndexSearcher is = new IndexSearcher(FSDirectory.getDirectory(indexDir));
+            // BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+            // ////////System.out.println("Enter the Field to Search:");
+            String ff = fname.trim();// br.readLine();
+            // ////////System.out.println("How many Results U Want:");
+            // int hitsPerPage = 100000;
+            //hitsPerPage = Integer.parseInt(br.readLine().trim());
+            // ////////System.out.println("Enter the Query:");
+            String q = tid.trim();//br.readLine();
+            q = q.replace(">", "?");
+            q = q.replace("(", "?");
+            q = q.replace(")", "?");
+            q = q.replace(" ", "?");
+            q = q.replace("<", "?");
+            q = q.replace("-", "\\-");
+            //q=q.replace("", "");
+            //q += "*";
+            long l1 = System.currentTimeMillis();
+            QueryParser qp = new QueryParser(ff.trim(), new KeywordAnalyzer());
+            Query qq = qp.parse(q);
+            //
+            String[] sF = {"weight", "conceptfrequency", "termfrequency"};
+            Sort sss = new Sort(sF);
+            //
+ Hits hits;
+	    if(!c.containsKey("Entity"))
+	    {
+           hits = is.search(qq, sss);
+	    }
+	    else
+	    {
+	hits = is.search(qq);
+	    }
+            //ScoreDoc[] hits = collector.topDocs().scoreDocs;
+
+            for (int B = 0, i = hits.length() - 1; i > 0 && B < 1000; i--, B++) {
+                Document d = hits.doc(i);
+                arr.add(d);
+            }
+            long l2 = System.currentTimeMillis();
+            ////////System.out.println("Results Found:" + hits.length());
+            //////////System.out.println("Searching Time:" + (l2 - l1) + "ms");
+            is.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return arr;
+    }
+//
+
+    public Hashtable<String, String> _DictGet() throws Exception {
+        BufferedReader br = new BufferedReader(new FileReader("/CliaIITKGP/resource/unl/uwdict.txt"));
+        Hashtable<String, String> ht = new Hashtable<String, String>();
+        ArrayList<String> arr = new ArrayList<String>();
+        String SS = "";
+        while ((SS = br.readLine()) != null) {
+            //
+            String s1[] = SS.split("/");
+            String synonym, uwconcept, tamilwordid, uw;
+            //synonym = s1[0];
+            //uwconcept = s1[1] + "(" + s1[2] + ")";
+            tamilwordid = s1[3];
+            //uw = s1[4];
+            ht.put(tamilwordid, SS);
+        }
+        br.close();
+        br = new BufferedReader(new FileReader("/CliaIITKGP/resource/unl/multiwords.txt"));
+        while ((SS = br.readLine()) != null) {
+            String s1[] = SS.split("/");
+            String tamilword, concept, noofwrds, firstword, tamid, cid;
+            //tamilword = s1[0];
+            //concept = s1[1] + "(" + s1[2] + ")";
+            //noofwrds = s1[3];
+            //firstword = s1[4];
+            tamid = s1[5];
+            //cid = s1[6];
+            ht.put(tamid, SS);
+        }
+        br.close();
+        return ht;
+//
+    }
+//
+}
+// 
+
